@@ -10,9 +10,12 @@ from config import *
 from memory_utils import MemoryManager
 from ollama_client import OllamaClient
 from flask_cors import CORS
+import os
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+# More secure CORS configuration with specific allowed origins
+allowed_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000').split(',')
+CORS(app, resources={r"/*": {"origins": allowed_origins}})
 
 # Configure logging
 logging.basicConfig(
@@ -26,11 +29,11 @@ logger = logging.getLogger(__name__)
 memory_manager = MemoryManager()
 ollama_client = OllamaClient()
 
-# Pattern to remove thinking tags
-thinking_pattern = re.compile(r'<think>.*?</think>', re.DOTALL)
+# Pattern to remove thinking tags - supports both <think> and <thinking> formats
+thinking_pattern = re.compile(r'<think(?:ing)?>.*?</think(?:ing)?>', re.DOTALL)
 
 def remove_thinking_tags(text):
-    """Remove <think>...</think> tags from the response"""
+    """Remove <think>...</think> or <thinking>...</thinking> tags from the response"""
     return thinking_pattern.sub('', text).strip()
 
 @app.route('/')
@@ -208,11 +211,17 @@ def ollama_tags_proxy():
             logger.info(f"Ollama tags proxy success: {len(data.get('models', []))} models found")
             return jsonify(data)
         else:
-            logger.error(f"Ollama tags proxy error: {response.status_code}")
-            return jsonify({"error": "Failed to reach Ollama"}), 500
+            return create_error_response(
+                message="Failed to reach Ollama API", 
+                status_code=502, 
+                log_exception=f"Status code: {response.status_code}"
+            )
     except Exception as e:
-        logger.error(f"Ollama tags proxy exception: {e}")
-        return jsonify({"error": str(e)}), 500
+        return create_error_response(
+            message="Error connecting to Ollama API", 
+            status_code=500, 
+            log_exception=e
+        )
 
 @app.route('/api/pull', methods=['POST'])
 def ollama_pull_proxy():
@@ -233,11 +242,38 @@ def ollama_pull_proxy():
             logger.info(f"Ollama pull proxy success")
             return jsonify(response.json())
         else:
-            logger.error(f"Ollama pull proxy error: {response.status_code}")
-            return jsonify({"error": "Failed to reach Ollama"}), 500
+            return create_error_response(
+                message="Failed to reach Ollama API for model pull", 
+                status_code=502, 
+                log_exception=f"Status code: {response.status_code}"
+            )
     except Exception as e:
-        logger.error(f"Ollama pull proxy exception: {e}")
-        return jsonify({"error": str(e)}), 500
+        return create_error_response(
+            message="Error connecting to Ollama API for model pull", 
+            status_code=500, 
+            log_exception=e
+        )
+
+# Create a standardized error response function
+def create_error_response(message, status_code=500, log_exception=None):
+    """Create a standardized error response with appropriate logging
+    
+    Args:
+        message: User-facing error message (keep it generic for security)
+        status_code: HTTP status code to return
+        log_exception: Exception to log (not exposed to user)
+    """
+    if log_exception:
+        logger.error(f"Error: {message} - Details: {str(log_exception)}")
+    else:
+        logger.error(f"Error: {message}")
+        
+    # Only return detailed error information in debug mode
+    if DEBUG:
+        detail = str(log_exception) if log_exception else None
+        return jsonify({"error": message, "detail": detail}), status_code
+    else:
+        return jsonify({"error": message}), status_code
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    app.run(host='0.0.0.0', port=PORT, debug=DEBUG)

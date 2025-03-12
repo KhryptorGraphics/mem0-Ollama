@@ -1,16 +1,18 @@
 # Simple direct Ollama server
 from flask import Flask, request, jsonify, send_from_directory, Response, stream_with_context
+from flask_cors import CORS
 import requests
 import logging
 import os
 import json
 import time
 from datetime import datetime
-from config import *
-from flask_cors import CORS
+from config import OLLAMA_HOST, PORT, DEBUG
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+# More secure CORS configuration with specific allowed origins
+allowed_origins = os.environ.get('ALLOWED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000').split(',')
+CORS(app, resources={r"/*": {"origins": allowed_origins}})
 
 # Configure logging
 logging.basicConfig(
@@ -35,7 +37,12 @@ def generate():
     
     # Forward the request directly to Ollama
     try:
-        ollama_url = f"{OLLAMA_HOST}/api/generate"
+        # Make sure OLLAMA_HOST has a proper URL scheme
+        host = OLLAMA_HOST
+        if not host.startswith(('http://', 'https://')):
+            host = f"http://{host}"
+            
+        ollama_url = f"{host}/api/generate"
         
         if stream:
             def generate_stream():
@@ -59,7 +66,12 @@ def generate():
 def ollama_tags():
     """Get available Ollama models"""
     try:
-        ollama_url = f"{OLLAMA_HOST}/api/tags"
+        # Make sure OLLAMA_HOST has a proper URL scheme
+        host = OLLAMA_HOST
+        if not host.startswith(('http://', 'https://')):
+            host = f"http://{host}"
+            
+        ollama_url = f"{host}/api/tags"
         response = requests.get(ollama_url)
         response.raise_for_status()
         return jsonify(response.json())
@@ -68,7 +80,12 @@ def ollama_tags():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
+    # Make sure OLLAMA_HOST has a proper URL scheme for logging
+    host_for_logging = OLLAMA_HOST
+    if not host_for_logging.startswith(('http://', 'https://')):
+        host_for_logging = f"http://{host_for_logging}"
+        
     logger.info(f"Starting direct Ollama server on port {PORT}")
-    logger.info(f"Using Ollama at {OLLAMA_HOST}")
+    logger.info(f"Using Ollama at {host_for_logging}")
     
-    app.run(host='0.0.0.0', port=PORT, debug=True)
+    app.run(host='0.0.0.0', port=PORT, debug=DEBUG)
