@@ -195,7 +195,13 @@ def ollama_tags_proxy():
     try:
         logger.info("Proxying request to Ollama /api/tags endpoint")
         import requests
-        response = requests.get(f"{OLLAMA_HOST}/api/tags", timeout=10)
+        
+        # Make sure OLLAMA_HOST has a proper URL scheme
+        host = OLLAMA_HOST
+        if not host.startswith(('http://', 'https://')):
+            host = f"http://{host}" 
+            
+        response = requests.get(f"{host}/api/tags", timeout=10)
 
         if response.status_code == 200:
             data = response.json()
@@ -214,8 +220,14 @@ def ollama_pull_proxy():
     try:
         logger.info("Proxying request to Ollama /api/pull endpoint")
         import requests
+        
+        # Make sure OLLAMA_HOST has a proper URL scheme
+        host = OLLAMA_HOST
+        if not host.startswith(('http://', 'https://')):
+            host = f"http://{host}"
+            
         data = request.json
-        response = requests.post(f"{OLLAMA_HOST}/api/pull", json=data, timeout=300)
+        response = requests.post(f"{host}/api/pull", json=data, timeout=300)
 
         if response.status_code == 200:
             logger.info(f"Ollama pull proxy success")
