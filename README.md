@@ -1,6 +1,8 @@
 # mem0-Ollama
 
-Web chat interface with mem0 integration for Ollama
+![mem0-Ollama](https://raw.githubusercontent.com/KhryptorGraphics/mem0-ollama/main/docs/logo.png)
+
+> Web chat interface with mem0 integration for Ollama
 
 ## Overview
 
@@ -14,14 +16,42 @@ mem0-Ollama is a web-based chat interface that integrates mem0 for memory manage
 - **Ollama Integration**: Works with any model available in Ollama
 - **Docker Support**: Container-ready deployment with proper networking
 
-## Requirements
-
-- Python 3.9+
-- Flask and required Python packages
-- Ollama running locally or in a container
-- mem0 vector database
-
 ## Installation
+
+### Windows
+
+1. Download the installation script:
+   ```
+   curl -o install_windows.ps1 https://raw.githubusercontent.com/KhryptorGraphics/mem0-ollama/main/install_windows.ps1
+   ```
+
+2. Run the script as Administrator:
+   ```
+   powershell -ExecutionPolicy Bypass -File install_windows.ps1
+   ```
+
+3. Follow the on-screen instructions to complete the installation.
+
+### Ubuntu 24.04
+
+1. Download the installation script:
+   ```
+   curl -o install_ubuntu.sh https://raw.githubusercontent.com/KhryptorGraphics/mem0-ollama/main/install_ubuntu.sh
+   ```
+
+2. Make the script executable:
+   ```
+   chmod +x install_ubuntu.sh
+   ```
+
+3. Run the script:
+   ```
+   ./install_ubuntu.sh
+   ```
+
+4. Follow the on-screen instructions to complete the installation.
+
+### Manual Installation
 
 1. Clone the repository:
    ```
@@ -53,7 +83,23 @@ docker-compose up -d
 
 This will start both the mem0-ollama service and the mem0 vector database.
 
-## Configuration
+## Usage
+
+### Web Interface
+
+The web interface provides two modes:
+
+1. **Memory-enabled Chat**: Access at http://localhost:5000/
+   - Features memory management for context-aware conversations
+   - Visualizes active memories being used for context
+   - Maintains conversation history with memory persistence
+
+2. **Direct Ollama Chat**: Access at http://localhost:5000/direct
+   - Direct communication with Ollama without mem0 integration
+   - Simpler interface for direct model testing
+   - No memory persistence between conversations
+
+### Configuration
 
 Adjust settings in `config.py` to customize:
 
@@ -63,6 +109,17 @@ Adjust settings in `config.py` to customize:
 - Memory settings
 - Server port
 
+## Requirements
+
+- Python 3.9+
+- Flask and required Python packages
+- Ollama running locally or in a container
+- mem0 vector database (included in Docker setup)
+
+## Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request.
+
 ## License
 
-See the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
