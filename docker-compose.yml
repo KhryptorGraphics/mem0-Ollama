@@ -1,46 +1,26 @@
 version: '3.8'
 
 services:
-  mem0-api:
-    image: weaviate/weaviate:1.21.2
+  qdrant:
+    image: qdrant/qdrant:latest
     ports:
-      - "8000:8080"
-    environment:
-      QUERY_DEFAULTS_LIMIT: 25
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
-      PERSISTENCE_DATA_PATH: '/var/lib/weaviate'
-      DEFAULT_VECTORIZER_MODULE: 'text2vec-transformers'
-      ENABLE_MODULES: 'text2vec-transformers'
-      TRANSFORMERS_INFERENCE_API: 'http://t2v-transformers:8080'
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
     volumes:
-      - mem0-data:/var/lib/weaviate
-    depends_on:
-      - t2v-transformers
-
-  t2v-transformers:
-    image: semitechnologies/transformers-inference:sentence-transformers-multi-qa-MiniLM-L6-cos-v1
-    environment:
-      ENABLE_CUDA: '0'
+      - qdrant-data:/qdrant/storage
+    restart: always
 
   mem0-ollama:
     build: .
     ports:
-      - "5000:5000"
+      - "8000:8000"  # Web interface and API on port 8000
     environment:
-      - MEM0_HOST=http://mem0-api:8080
-      - OLLAMA_HOST=http://ollama:11434
+      - MEM0_HOST=http://qdrant:6333
+      - OLLAMA_HOST=http://host.docker.internal:11434
       - DEFAULT_MODEL=llama3
+      - ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
     depends_on:
-      - mem0-api
-      - ollama
-
-  ollama:
-    image: ollama/ollama:latest
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
+      - qdrant
 
 volumes:
-  mem0-data:
-  ollama-data:
+  qdrant-data:

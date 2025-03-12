@@ -71,7 +71,7 @@ mem0-Ollama is a web-based chat interface that integrates mem0 for memory manage
    python main.py
    ```
 
-5. Open your browser and navigate to http://localhost:5000
+5. Open your browser and navigate to http://localhost:8000
 
 ## Docker Deployment
 
@@ -89,12 +89,12 @@ This will start both the mem0-ollama service and the mem0 vector database.
 
 The web interface provides two modes:
 
-1. **Memory-enabled Chat**: Access at http://localhost:5000/
+1. **Memory-enabled Chat**: Access at http://localhost:8000/
    - Features memory management for context-aware conversations
    - Visualizes active memories being used for context
    - Maintains conversation history with memory persistence
 
-2. **Direct Ollama Chat**: Access at http://localhost:5000/direct
+2. **Direct Ollama Chat**: Access at http://localhost:8000/direct
    - Direct communication with Ollama without mem0 integration
    - Simpler interface for direct model testing
    - No memory persistence between conversations
