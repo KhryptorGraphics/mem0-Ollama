@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 class OllamaClient:
     def __init__(self, host=None):
         self.host = host or OLLAMA_HOST
+        # Make sure host has proper URL scheme
+        if not self.host.startswith(('http://', 'https://')):
+            self.host = f"http://{self.host}"
         logger.info(f"Initialized Ollama client with host: {self.host}")
     
     def generate(self, model, prompt, **kwargs):
