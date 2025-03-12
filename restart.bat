@@ -1,0 +1,3 @@
+@echo off
+echo Restarting mem0-Ollama web server...
+python main.py
