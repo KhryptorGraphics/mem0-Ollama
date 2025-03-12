@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import time
+import re
 from datetime import datetime
 from config import *
 from memory_utils import MemoryManager
@@ -24,6 +25,13 @@ logger = logging.getLogger(__name__)
 # Initialize memory manager and Ollama client
 memory_manager = MemoryManager()
 ollama_client = OllamaClient()
+
+# Pattern to remove thinking tags
+thinking_pattern = re.compile(r'<think>.*?</think>', re.DOTALL)
+
+def remove_thinking_tags(text):
+    """Remove <think>...</think> tags from the response"""
+    return thinking_pattern.sub('', text).strip()
 
 @app.route('/')
 def index():
@@ -83,8 +91,11 @@ def chat():
                 n_predict=n_predict,
                 stop=stop_sequences
             ):
-                full_response += chunk
-                yield f"data: {json.dumps({'text': chunk})}\n\n"
+                # Remove thinking tags if present
+                clean_chunk = remove_thinking_tags(chunk)
+                if clean_chunk:
+                    full_response += clean_chunk
+                    yield f"data: {json.dumps({'text': clean_chunk})}\n\n"
             
             # Store the memory after completion
             store_memory(message, full_response, memory_id)
@@ -102,11 +113,14 @@ def chat():
             stop=stop_sequences
         )
         
+        # Clean the response text of any thinking tags
+        clean_response = remove_thinking_tags(response_text)
+        
         # Store the memory
-        store_memory(message, response_text, memory_id)
+        store_memory(message, clean_response, memory_id)
         
         return jsonify({
-            'text': response_text,
+            'text': clean_response,
             'model': model
         })
 
