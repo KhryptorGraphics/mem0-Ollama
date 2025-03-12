@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Ollama Chat</title>
+    <style>
+        :root {
+            --primary-color: #5a67d8;
+            --secondary-color: #f0f4f8;
+            --text-color: #333;
+            --light-text: #666;
+            --border-color: #ddd;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            margin: 0;
+            padding: 0;
+            background-color: #f7f9fc;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        
+        .title {
+            color: var(--primary-color);
+            margin: 0;
+            font-size: 2rem;
+        }
+        
+        .subtitle {
+            color: var(--light-text);
+            margin-top: 0.5rem;
+        }
+        
+        .chat-box {
+            background-color: white;
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .settings-panel {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            background-color: #f9f9f9;
+        }
+        
+        .settings-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        
+        .setting-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .setting-group label {
+            font-size: 0.8rem;
+            margin-bottom: 0.2rem;
+            color: var(--light-text);
+            font-weight: 500;
+        }
+        
+        .setting-group select,
+        .setting-group input,
+        .setting-group textarea {
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.3rem;
+            font-family: inherit;
+        }
+        
+        .setting-group select:focus,
+        .setting-group input:focus,
+        .setting-group textarea:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+        
+        .setting-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+        
+        .chat-messages {
+            padding: 1rem;
+            height: 400px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        
+        .message {
+            max-width: 80%;
+            padding: 0.8rem 1rem;
+            border-radius: 1rem;
+            position: relative;
+            animation: fadeIn 0.3s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .user-message {
+            align-self: flex-end;
+            background-color: var(--primary-color);
+            color: white;
+            border-bottom-right-radius: 0.2rem;
+        }
+        
+        .bot-message {
+            align-self: flex-start;
+            background-color: var(--secondary-color);
+            border-bottom-left-radius: 0.2rem;
+        }
+        
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--light-text);
+            text-align: right;
+            margin-top: 0.3rem;
+        }
+        
+        .chat-input-container {
+            display: flex;
+            padding: 1rem;
+            background-color: white;
+            border-top: 1px solid var(--border-color);
+        }
+        
+        .chat-input {
+            flex: 1;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.8rem 1rem;
+            font-family: inherit;
+            resize: none;
+        }
+        
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+        }
+        
+        .send-button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            padding: 0 1.5rem;
+            margin-left: 0.5rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background-color 0.2s;
+        }
+        
+        .send-button:hover {
+            background-color: #4c51bf;
+        }
+        
+        .send-button:disabled {
+            background-color: var(--border-color);
+            cursor: not-allowed;
+        }
+        
+        .note {
+            text-align: center;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: var(--light-text);
+        }
+        
+        @media (max-width: 768px) {
+            .settings-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 class="title">Direct Ollama Chat</h1>
+            <p class="subtitle">Chat directly with Ollama models (no memory)</p>
+        </div>
+        
+        <div class="chat-box">
+            <div class="settings-panel">
+                <div class="settings-grid">
+                    <div class="setting-group">
+                        <label for="model-select">Model</label>
+                        <select id="model-select">
+                            <option value="llama3">Llama 3</option>
+                            <option value="phi3-mini">Phi-3 Mini</option>
+                            <option value="gemma2:7b">Gemma 2 7B</option>
+                            <option value="mistral:7b">Mistral 7B</option>
+                        </select>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <label for="temperature">Temperature</label>
+                        <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+                        <span id="temperature-value">0.7</span>
+                    </div>
+                    
+                    <div class="setting-group">
+                        <label for="system-prompt">System Prompt</label>
+                        <textarea id="system-prompt">You are a helpful assistant.</textarea>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="messages">
+                <!-- Messages will be inserted here -->
+            </div>
+            
+            <div class="chat-input-container">
+                <textarea class="chat-input" id="chat-input" placeholder="Type your message here..."></textarea>
+                <button class="send-button" id="send-button">Send</button>
+            </div>
+        </div>
+        
+        <p class="note">This is a direct chat interface with no memory persistence between conversations.</p>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const messagesContainer = document.getElementById('messages');
+            const chatInput = document.getElementById('chat-input');
+            const sendButton = document.getElementById('send-button');
+            const modelSelect = document.getElementById('model-select');
+            const systemPrompt = document.getElementById('system-prompt');
+            const temperatureInput = document.getElementById('temperature');
+            const temperatureValue = document.getElementById('temperature-value');
+            
+            let isProcessing = false;
+            let controller = null;
+            let chatHistory = [];
+            
+            // Load available models from Ollama
+            fetch('/api/tags')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.models && data.models.length > 0) {
+                        modelSelect.innerHTML = ''; // Clear existing options
+                        data.models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model.name;
+                            option.textContent = model.name;
+                            modelSelect.appendChild(option);
+                        });
+                    }
+                })
+                .catch(error => console.error('Error loading models:', error));
+            
+            // Update temperature value display
+            temperatureInput.addEventListener('input', function() {
+                temperatureValue.textContent = this.value;
+            });
+            
+            sendButton.addEventListener('click', sendMessage);
+            
+            chatInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            function sendMessage() {
+                if (isProcessing || !chatInput.value.trim()) return;
+                
+                const message = chatInput.value.trim();
+                chatInput.value = '';
+                
+                // Add message to chat history
+                chatHistory.push({role: 'user', content: message});
+                
+                // Display user message
+                addMessage(message, 'user');
+                
+                isProcessing = true;
+                sendButton.disabled = true;
+                
+                // Construct the prompt with chat history
+                let fullPrompt = systemPrompt.value + "\n\n";
+                
+                chatHistory.forEach(msg => {
+                    if (msg.role === 'user') {
+                        fullPrompt += `User: ${msg.content}\n\n`;
+                    } else {
+                        fullPrompt += `Assistant: ${msg.content}\n\n`;
+                    }
+                });
+                
+                fullPrompt += "Assistant:";
+                
+                // Prepare request parameters
+                const params = {
+                    model: modelSelect.value,
+                    prompt: fullPrompt,
+                    temperature: parseFloat(temperatureInput.value),
+                    stream: true
+                };
+                
+                // Cancel previous request if exists
+                if (controller) {
+                    controller.abort();
+                }
+                
+                controller = new AbortController();
+                
+                // Send request directly to Ollama
+                fetch('/api/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(params),
+                    signal: controller.signal
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`Server responded with ${response.status}`);
+                    }
+                    
+                    const reader = response.body.getReader();
+                    const decoder = new TextDecoder();
+                    let botResponse = '';
+                    let botMessageElement = document.createElement('div');
+                    botMessageElement.className = 'message bot-message';
+                    messagesContainer.appendChild(botMessageElement);
+                    
+                    return new ReadableStream({
+                        start(controller) {
+                            function push() {
+                                reader.read().then(({ done, value }) => {
+                                    if (done) {
+                                        controller.close();
+                                        return;
+                                    }
+                                    
+                                    const chunk = decoder.decode(value, { stream: true });
+                                    try {
+                                        const lines = chunk.split('\n');
+                                        lines.forEach(line => {
+                                            if (line.trim()) {
+                                                const data = JSON.parse(line);
+                                                if (data.response) {
+                                                    botResponse += data.response;
+                                                    botMessageElement.textContent = botResponse;
+                                                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                                                }
+                                            }
+                                        });
+                                    } catch (e) {
+                                        console.error('Error parsing chunk:', e);
+                                    }
+                                    
+                                    controller.enqueue(value);
+                                    push();
+                                }).catch(err => {
+                                    if (err.name !== 'AbortError') {
+                                        console.error('Error reading stream:', err);
+                                        controller.error(err);
+                                    }
+                                });
+                            }
+                            
+                            push();
+                        }
+                    });
+                })
+                .then(() => {
+                    // Add the response to chat history
+                    chatHistory.push({role: 'assistant', content: botResponse});
+                    
+                    // Add timestamp to message
+                    const timeElement = document.createElement('div');
+                    timeElement.className = 'message-time';
+                    timeElement.textContent = new Date().toLocaleTimeString();
+                    botMessageElement.appendChild(timeElement);
+                })
+                .catch(error => {
+                    if (error.name !== 'AbortError') {
+                        console.error('Error:', error);
+                        addMessage(`Error: ${error.message}`, 'bot');
+                    }
+                })
+                .finally(() => {
+                    isProcessing = false;
+                    sendButton.disabled = false;
+                    controller = null;
+                });
+            }
+            
+            function addMessage(text, sender) {
+                const messageElement = document.createElement('div');
+                messageElement.className = `message ${sender}-message`;
+                messageElement.textContent = text;
+                
+                const timeElement = document.createElement('div');
+                timeElement.className = 'message-time';
+                timeElement.textContent = new Date().toLocaleTimeString();
+                messageElement.appendChild(timeElement);
+                
+                messagesContainer.appendChild(messageElement);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        });
+    </script>
+</body>
+</html>
