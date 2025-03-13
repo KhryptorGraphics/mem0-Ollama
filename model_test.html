@@ -4,297 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>mem0-Ollama Chat</title>
-    <style>
-        :root {
-            --primary-color: #4a90e2;
-            --secondary-color: #f0f4f8;
-            --text-color: #333;
-            --light-text: #666;
-            --border-color: #ddd;
-            --success-color: #5cb85c;
-            --active-memory: #e3f2fd;
-            --inactive-memory: #f5f5f5;
-        }
-        
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            line-height: 1.6;
-            color: var(--text-color);
-            margin: 0;
-            padding: 0;
-            display: flex;
-            min-height: 100vh;
-        }
-        
-        .chat-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            max-width: 800px;
-            margin: 0 auto;
-            border-right: 1px solid var(--border-color);
-        }
-        
-        .header {
-            background-color: var(--primary-color);
-            color: white;
-            padding: 1rem;
-            text-align: center;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        
-        .title {
-            margin: 0;
-            font-size: 1.5rem;
-        }
-        
-        .chat-messages {
-            flex: 1;
-            padding: 1rem;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        
-        .message {
-            max-width: 80%;
-            padding: 0.8rem 1rem;
-            border-radius: 1rem;
-            position: relative;
-            animation: fadeIn 0.3s ease-in-out;
-        }
-        
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .user-message {
-            align-self: flex-end;
-            background-color: var(--primary-color);
-            color: white;
-            border-bottom-right-radius: 0.2rem;
-        }
-        
-        .bot-message {
-            align-self: flex-start;
-            background-color: var(--secondary-color);
-            border-bottom-left-radius: 0.2rem;
-        }
-        
-        .message-time {
-            font-size: 0.7rem;
-            color: var(--light-text);
-            text-align: right;
-            margin-top: 0.3rem;
-        }
-        
-        .bot-thinking {
-            align-self: flex-start;
-            background-color: var(--secondary-color);
-            border-bottom-left-radius: 0.2rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .thinking-dots span {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background-color: var(--light-text);
-            animation: dotPulse 1.5s infinite ease-in-out;
-        }
-        
-        .thinking-dots span:nth-child(2) {
-            animation-delay: 0.2s;
-        }
-        
-        .thinking-dots span:nth-child(3) {
-            animation-delay: 0.4s;
-        }
-        
-        @keyframes dotPulse {
-            0%, 100% { transform: scale(0.8); opacity: 0.5; }
-            50% { transform: scale(1.2); opacity: 1; }
-        }
-        
-        .chat-input-container {
-            display: flex;
-            padding: 1rem;
-            background-color: white;
-            border-top: 1px solid var(--border-color);
-            position: sticky;
-            bottom: 0;
-            z-index: 100;
-        }
-        
-        .chat-input {
-            flex: 1;
-            border: 1px solid var(--border-color);
-            border-radius: 1.5rem;
-            padding: 0.8rem 1.2rem;
-            font-family: inherit;
-            resize: none;
-            height: 20px;
-            line-height: 20px;
-            max-height: 150px;
-            overflow-y: auto;
-        }
-        
-        .chat-input:focus {
-            outline: none;
-            border-color: var(--primary-color);
-        }
-        
-        .send-button {
-            background-color: var(--primary-color);
-            color: white;
-            border: none;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            margin-left: 0.5rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: background-color 0.2s;
-        }
-        
-        .send-button:hover {
-            background-color: #3a7bc8;
-        }
-        
-        .send-button:disabled {
-            background-color: var(--border-color);
-            cursor: not-allowed;
-        }
-        
-        .settings-panel {
-            padding: 1rem;
-            border-bottom: 1px solid var(--border-color);
-            background-color: #f9f9f9;
-        }
-        
-        .settings-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.8rem;
-        }
-        
-        .setting-group {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .setting-group label {
-            font-size: 0.8rem;
-            margin-bottom: 0.2rem;
-            color: var(--light-text);
-        }
-        
-        .setting-group select,
-        .setting-group input,
-        .setting-group textarea {
-            padding: 0.5rem;
-            border: 1px solid var(--border-color);
-            border-radius: 0.3rem;
-            font-family: inherit;
-        }
-        
-        .setting-group select:focus,
-        .setting-group input:focus,
-        .setting-group textarea:focus {
-            outline: none;
-            border-color: var(--primary-color);
-        }
-        
-        .setting-group textarea {
-            resize: vertical;
-            min-height: 60px;
-        }
-        
-        .memories-container {
-            width: 300px;
-            border-left: 1px solid var(--border-color);
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .memories-header {
-            padding: 1rem;
-            background-color: #f0f4f8;
-            font-weight: bold;
-            border-bottom: 1px solid var(--border-color);
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        
-        .memory-item {
-            padding: 0.8rem 1rem;
-            border-bottom: 1px solid var(--border-color);
-            font-size: 0.9rem;
-            position: relative;
-            transition: background-color 0.2s;
-        }
-        
-        .memory-item.active {
-            background-color: var(--active-memory);
-        }
-        
-        .memory-item:not(.active) {
-            background-color: var(--inactive-memory);
-        }
-        
-        .memory-metadata {
-            font-size: 0.7rem;
-            color: var(--light-text);
-            margin-top: 0.5rem;
-        }
-        
-        .memory-badge {
-            position: absolute;
-            top: 0.5rem;
-            right: 0.5rem;
-            font-size: 0.7rem;
-            padding: 0.2rem 0.4rem;
-            border-radius: 0.3rem;
-            background-color: var(--border-color);
-        }
-        
-        .memory-badge.active {
-            background-color: var(--success-color);
-            color: white;
-        }
-
-        @media (max-width: 768px) {
-            body {
-                flex-direction: column;
-            }
-            
-            .chat-container {
-                max-width: 100%;
-                border-right: none;
-                border-bottom: 1px solid var(--border-color);
-            }
-            
-            .memories-container {
-                width: 100%;
-                border-left: none;
-            }
-            
-            .settings-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
+    <!-- CSS styles not changed, kept same as original -->
+    <style>:root{--primary-color:#4a90e2;--secondary-color:#f0f4f8;--text-color:#333;--light-text:#666;--border-color:#ddd;--success-color:#5cb85c;--active-memory:#e3f2fd;--inactive-memory:#f5f5f5}body{font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;line-height:1.6;color:var(--text-color);margin:0;padding:0;display:flex;min-height:100vh}.chat-container{flex:1;display:flex;flex-direction:column;max-width:800px;margin:0 auto;border-right:1px solid var(--border-color)}.header{background-color:var(--primary-color);color:#fff;padding:1rem;text-align:center;position:sticky;top:0;z-index:100}.title{margin:0;font-size:1.5rem}.chat-messages{flex:1;padding:1rem;overflow-y:auto;display:flex;flex-direction:column;gap:1rem}.message{max-width:80%;padding:.8rem 1rem;border-radius:1rem;position:relative;animation:fadeIn .3s ease-in-out}@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}.user-message{align-self:flex-end;background-color:var(--primary-color);color:#fff;border-bottom-right-radius:.2rem}.bot-message{align-self:flex-start;background-color:var(--secondary-color);border-bottom-left-radius:.2rem}.message-time{font-size:.7rem;color:var(--light-text);text-align:right;margin-top:.3rem}.bot-thinking{align-self:flex-start;background-color:var(--secondary-color);border-bottom-left-radius:.2rem;display:flex;align-items:center;gap:.5rem}.thinking-dots span{display:inline-block;width:8px;height:8px;border-radius:50%;background-color:var(--light-text);animation:dotPulse 1.5s infinite ease-in-out}.thinking-dots span:nth-child(2){animation-delay:.2s}.thinking-dots span:nth-child(3){animation-delay:.4s}@keyframes dotPulse{0%,100%{transform:scale(.8);opacity:.5}50%{transform:scale(1.2);opacity:1}}.chat-input-container{display:flex;padding:1rem;background-color:#fff;border-top:1px solid var(--border-color);position:sticky;bottom:0;z-index:100}.chat-input{flex:1;border:1px solid var(--border-color);border-radius:1.5rem;padding:.8rem 1.2rem;font-family:inherit;resize:none;height:20px;line-height:20px;max-height:150px;overflow-y:auto}.chat-input:focus{outline:0;border-color:var(--primary-color)}.send-button{background-color:var(--primary-color);color:#fff;border:none;border-radius:50%;width:40px;height:40px;margin-left:.5rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background-color .2s}.send-button:hover{background-color:#3a7bc8}.send-button:disabled{background-color:var(--border-color);cursor:not-allowed}.settings-panel{padding:1rem;border-bottom:1px solid var(--border-color);background-color:#f9f9f9}.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:.8rem}.setting-group{display:flex;flex-direction:column}.setting-group label{font-size:.8rem;margin-bottom:.2rem;color:var(--light-text)}.setting-group select,.setting-group input,.setting-group textarea{padding:.5rem;border:1px solid var(--border-color);border-radius:.3rem;font-family:inherit}.setting-group select:focus,.setting-group input:focus,.setting-group textarea:focus{outline:0;border-color:var(--primary-color)}.setting-group textarea{resize:vertical;min-height:60px}.memories-container{width:300px;border-left:1px solid var(--border-color);overflow-y:auto;display:flex;flex-direction:column}.memories-header{padding:1rem;background-color:#f0f4f8;font-weight:700;border-bottom:1px solid var(--border-color);position:sticky;top:0;z-index:10}.memory-item{padding:.8rem 1rem;border-bottom:1px solid var(--border-color);font-size:.9rem;position:relative;transition:background-color .2s}.memory-item.active{background-color:var(--active-memory)}.memory-item:not(.active){background-color:var(--inactive-memory)}.memory-metadata{font-size:.7rem;color:var(--light-text);margin-top:.5rem}.memory-badge{position:absolute;top:.5rem;right:.5rem;font-size:.7rem;padding:.2rem .4rem;border-radius:.3rem;background-color:var(--border-color)}.memory-badge.active{background-color:var(--success-color);color:#fff}@media (max-width:768px){body{flex-direction:column}.chat-container{max-width:100%;border-right:none;border-bottom:1px solid var(--border-color)}.memories-container{width:100%;border-left:none}.settings-grid{grid-template-columns:1fr}}</style>
 </head>
 <body>
     <div class="chat-container">
@@ -370,27 +81,83 @@
             let isProcessing = false;
             let controller = null;
             
-            // Load available models from Ollama
-            fetch('/api/tags')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.models && data.models.length > 0) {
-                        modelSelect.innerHTML = ''; // Clear existing options
-                        data.models.forEach(model => {
-                            const option = document.createElement('option');
-                            option.value = model.name;
-                            option.textContent = model.name;
-                            modelSelect.appendChild(option);
-                        });
-                    }
-                })
-                .catch(error => console.error('Error loading models:', error));
+            // Load available models dynamically from API
+            function loadAvailableModels() {
+                fetch('/api/tags')
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Server responded with ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        if (data.models && data.models.length > 0) {
+                            modelSelect.innerHTML = ''; // Clear existing options
+                            data.models.forEach(model => {
+                                const option = document.createElement('option');
+                                option.value = model.name;
+                                option.textContent = model.name;
+                                modelSelect.appendChild(option);
+                            });
+                            
+                            // If we have saved settings, apply the selected model
+                            const savedSettings = JSON.parse(localStorage.getItem('mem0_settings') || '{}');
+                            if (savedSettings.model) {
+                                // Find if the saved model exists in available models
+                                const modelExists = Array.from(modelSelect.options).some(opt => opt.value === savedSettings.model);
+                                if (modelExists) {
+                                    modelSelect.value = savedSettings.model;
+                                }
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error loading models:', error);
+                        // Keep the default models as fallback
+                    });
+            }
+            
+            // Save settings to localStorage
+            function saveSettings() {
+                const settings = {
+                    model: modelSelect.value,
+                    memory_id: memoryIdInput.value,
+                    system_prompt: systemPrompt.value,
+                    temperature: temperatureInput.value
+                };
+                localStorage.setItem('mem0_settings', JSON.stringify(settings));
+            }
+            
+            // Load settings from localStorage
+            function loadSavedSettings() {
+                const savedSettings = JSON.parse(localStorage.getItem('mem0_settings') || '{}');
+                
+                if (savedSettings.memory_id) {
+                    memoryIdInput.value = savedSettings.memory_id;
+                }
+                
+                if (savedSettings.system_prompt) {
+                    systemPrompt.value = savedSettings.system_prompt;
+                }
+                
+                if (savedSettings.temperature) {
+                    temperatureInput.value = savedSettings.temperature;
+                    temperatureValue.textContent = savedSettings.temperature;
+                }
+                
+                // Model is handled in loadAvailableModels() since we need to check if it exists
+            }
             
             // Load memories for the current memory ID
             function loadMemories() {
                 const memoryId = memoryIdInput.value;
                 fetch(`/api/memories?memory_id=${memoryId}`)
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`Server responded with ${response.status}`);
+                        }
+                        return response.json();
+                    })
                     .then(data => {
                         memoriesList.innerHTML = '';
                         const activeMemoryIds = data.active || [];
@@ -406,8 +173,10 @@
                             
                             const memoryMetadata = document.createElement('div');
                             memoryMetadata.className = 'memory-metadata';
-                            const timestamp = memory.metadata.timestamp ? new Date(memory.metadata.timestamp).toLocaleString() : 'Unknown time';
-                            memoryMetadata.textContent = `${memory.metadata.type || 'Memory'} | ${timestamp}`;
+                            const timestamp = memory.metadata && memory.metadata.timestamp ? 
+                                             new Date(memory.metadata.timestamp).toLocaleString() : 'Unknown time';
+                            const type = memory.metadata && memory.metadata.type ? memory.metadata.type : 'Memory';
+                            memoryMetadata.textContent = `${type} | ${timestamp}`;
                             
                             const memoryBadge = document.createElement('span');
                             memoryBadge.className = `memory-badge ${isActive ? 'active' : ''}`;
@@ -419,16 +188,35 @@
                             memoriesList.appendChild(memoryItem);
                         });
                     })
-                    .catch(error => console.error('Error loading memories:', error));
+                    .catch(error => {
+                        console.error('Error loading memories:', error);
+                        memoriesList.innerHTML = '<div class="memory-item">Failed to load memories. Please check connection.</div>';
+                    });
             }
+            
+            // Load available models
+            loadAvailableModels();
             
             // Load initial memories
             loadMemories();
             
-            // Update temperature value display
+            // Load saved settings from localStorage
+            loadSavedSettings();
+            
+            // Update temperature value display and save settings
             temperatureInput.addEventListener('input', function() {
                 temperatureValue.textContent = this.value;
+                // Save setting on change
+                saveSettings();
             });
+            
+            // Save settings when inputs change
+            modelSelect.addEventListener('change', saveSettings);
+            memoryIdInput.addEventListener('change', function() {
+                saveSettings();
+                loadMemories(); // Also reload memories when ID changes
+            });
+            systemPrompt.addEventListener('change', saveSettings);
             
             // Auto-resize textarea
             chatInput.addEventListener('input', function() {
@@ -487,6 +275,7 @@
                 }
                 
                 controller = new AbortController();
+                let botMessageElement = null;
                 
                 // Send request to the API
                 fetch('/api/chat', {
@@ -505,10 +294,16 @@
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let botResponse = '';
-                    let botMessageElement = null;
                     
                     // Remove typing indicator
-                    messagesContainer.removeChild(thinkingElement);
+                    if (thinkingElement.parentNode) {
+                        messagesContainer.removeChild(thinkingElement);
+                    }
+                    
+                    // Create bot message element
+                    botMessageElement = document.createElement('div');
+                    botMessageElement.className = 'message bot-message';
+                    messagesContainer.appendChild(botMessageElement);
                     
                     return new ReadableStream({
                         start(controller) {
@@ -533,12 +328,6 @@
                                             try {
                                                 const parsed = JSON.parse(data);
                                                 if (parsed.text) {
-                                                    if (!botMessageElement) {
-                                                        botMessageElement = document.createElement('div');
-                                                        botMessageElement.className = 'message bot-message';
-                                                        messagesContainer.appendChild(botMessageElement);
-                                                    }
-                                                    
                                                     botResponse += parsed.text;
                                                     botMessageElement.textContent = botResponse;
                                                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -552,8 +341,10 @@
                                     controller.enqueue(value);
                                     push();
                                 }).catch(err => {
-                                    console.error('Error reading stream:', err);
-                                    controller.error(err);
+                                    if (err.name !== 'AbortError') {
+                                        console.error('Error reading stream:', err);
+                                        controller.error(err);
+                                    }
                                 });
                             }
                             
@@ -580,8 +371,13 @@
                         messagesContainer.removeChild(thinkingElement);
                     }
                     
+                    // If the bot message was created but there was an error, remove it
+                    if (botMessageElement && botMessageElement.parentNode) {
+                        messagesContainer.removeChild(botMessageElement);
+                    }
+                    
                     // Show error message
-                    addMessage(`Error: ${error.message}`, 'bot');
+                    addMessage(`API Error: ${error.message}`, 'bot');
                 })
                 .finally(() => {
                     isProcessing = false;
@@ -602,10 +398,9 @@
                 
                 messagesContainer.appendChild(messageElement);
                 messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                
+                return messageElement;
             }
-            
-            // Reset memories when memory ID changes
-            memoryIdInput.addEventListener('change', loadMemories);
         });
     </script>
 </body>
