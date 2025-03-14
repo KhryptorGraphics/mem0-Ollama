@@ -111,7 +111,7 @@ Adjust settings in `config.py` to customize:
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.12
 - Flask and required Python packages
 - Ollama running locally or in a container
 - mem0 vector database (included in Docker setup)
