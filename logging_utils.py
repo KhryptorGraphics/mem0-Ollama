@@ -35,9 +35,15 @@ LOG_LEVELS = {
 CURRENT_REQUEST_ID = None
 
 class RequestIdFilter(logging.Filter):
-    """Filter that adds request_id to log records."""
+    """
+    Filter that adds request_id to log records.
+    This ensures every log record has a request_id attribute,
+    even if CURRENT_REQUEST_ID is None.
+    """
     def filter(self, record):
-        record.request_id = CURRENT_REQUEST_ID or "-"
+        # Make sure request_id exists, even if it's not in the record
+        if not hasattr(record, 'request_id'):
+            record.request_id = CURRENT_REQUEST_ID or "-"
         return True
 
 class ContextAdapter(logging.LoggerAdapter):
@@ -95,14 +101,23 @@ def configure_logging(level: str = "info",
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
     
-    # Create formatter
-    formatter = logging.Formatter(
+    # Create a safer formatter that doesn't fail if request_id is missing
+    class SafeFormatter(logging.Formatter):
+        def format(self, record):
+            # Make sure request_id exists
+            if not hasattr(record, 'request_id'):
+                record.request_id = "-"
+            return super().format(record)
+    
+    # Create formatter with safe handling
+    formatter = SafeFormatter(
         '%(asctime)s.%(msecs)03d | %(levelname)-8s | %(name)-25s | %(request_id)s | %(message)s',
         '%Y-%m-%d %H:%M:%S'
     )
     
     # Add request ID filter to root logger
-    root_logger.addFilter(RequestIdFilter())
+    request_id_filter = RequestIdFilter()
+    root_logger.addFilter(request_id_filter)
     
     # Console handler
     if console:
@@ -143,6 +158,7 @@ def configure_logging(level: str = "info",
         api_handler.setLevel(log_level)
         api_logger = logging.getLogger('api')
         api_logger.propagate = False  # Don't propagate to root
+        api_logger.addFilter(request_id_filter)  # Add request ID filter
         api_logger.addHandler(api_handler)
         
         # Memory log
@@ -155,11 +171,13 @@ def configure_logging(level: str = "info",
         memory_handler.setLevel(log_level)
         memory_logger = logging.getLogger('memory')
         memory_logger.propagate = False  # Don't propagate to root
+        memory_logger.addFilter(request_id_filter)  # Add request ID filter
         memory_logger.addHandler(memory_handler)
 
 def get_logger(name: str, context: Optional[Dict[str, Any]] = None) -> Union[logging.Logger, ContextAdapter]:
     """
     Get a logger with the given name and optional context.
+    Ensures the logger has the RequestIdFilter applied.
     
     Args:
         name: Logger name
@@ -169,6 +187,16 @@ def get_logger(name: str, context: Optional[Dict[str, Any]] = None) -> Union[log
         Logger or LoggerAdapter with context
     """
     logger = logging.getLogger(name)
+    
+    # Make sure this logger has the RequestIdFilter
+    has_request_id_filter = False
+    for existing_filter in logger.filters:
+        if isinstance(existing_filter, RequestIdFilter):
+            has_request_id_filter = True
+            break
+    
+    if not has_request_id_filter:
+        logger.addFilter(RequestIdFilter())
     
     if context:
         return ContextAdapter(logger, {})

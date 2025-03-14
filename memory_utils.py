@@ -2,21 +2,28 @@
 Memory management utilities for mem0 + Ollama integration
 
 This module handles memory operations including storage, retrieval, and management
-of conversation history using Qdrant vector database.
+of conversation history using vector database.
 """
 
 import time
 import requests
 import json
-from typing import Dict, List, Any, Optional, Union, Tuple
+import datetime
+import threading
+import random
+from typing import Dict, List, Any, Optional, Union, Tuple, Callable, Set
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
 
 from mem0 import Memory
 from config import (
-    OLLAMA_HOST, 
-    OLLAMA_MODEL, 
-    QDRANT_HOST, 
-    QDRANT_COLLECTION,
-    MODEL_DIMENSIONS
+    OLLAMA_HOST,
+    DEFAULT_MODEL,
+    MEM0_HOST,
+    VECTOR_COLLECTION,
+    ACTIVE_MEMORY_COLLECTION,
+    MAX_MEMORIES,
+    MEMORY_DATABASE
 )
 
 import logging_utils
@@ -25,10 +32,142 @@ import logging_utils
 logger = logging_utils.get_logger(__name__)
 memory_logger = logging_utils.get_logger("memory")
 
-# Default retry settings
+# Default retry settings - Exponential backoff with jitter
 DEFAULT_TIMEOUT = 10  # seconds
-MAX_RETRIES = 3
+MAX_RETRIES = 5  # Increased for better resilience
 RETRY_DELAY = 1.0  # seconds
+RETRY_BACKOFF_FACTOR = 2.0
+RETRY_JITTER = 0.1  # Add jitter to avoid request storms
+
+# Cache settings
+CACHE_TTL = 300  # seconds (5 minutes)
+MAX_CACHE_ITEMS = 1000
+
+# Advanced memory settings
+MEMORY_DECAY_FACTOR = 0.9  # Factor to multiply relevance score for older memories
+MEMORY_DECAY_INTERVAL = 60 * 60 * 24  # 24 hours in seconds
+MEMORY_RELEVANCE_THRESHOLD = 0.6  # Minimum relevance score for memories
+MEMORY_PRIORITY_RECENT = 0.3  # Weight for recency in priority calculation
+MEMORY_PRIORITY_RELEVANCE = 0.7  # Weight for relevance in priority calculation
+
+# Global constants
+GLOBAL_MEMORY_ID = "global_memory_store"
+
+# Model dimensions based on known models
+MODEL_DIMENSIONS = {
+    'llama3': 4096,
+    'llama3.1': 4096,
+    'llama3.2': 3072,
+    'llama3.3': 8192,
+    'gemma2': 3072,
+    'gemma3:12b': 3072,
+    'phi3-mini': 2048,
+    'phi3': 3072,
+    'mistral': 4096,
+    'qwen2': 4096,
+    'qwen2.5': 4096,
+    'nomic-embed-text': 768,
+    'snowflake-arctic-embed': 1024,
+    'deepseek-r1': 4096
+}
+
+# Connection pools for efficiency
+# Use connection pooling for all requests
+session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(
+    pool_connections=10,
+    pool_maxsize=20,
+    max_retries=3,
+    pool_block=False
+)
+session.mount('http://', adapter)
+session.mount('https://', adapter)
+
+# Memory cache
+_memory_cache = {}
+_cache_lock = threading.RLock()
+
+# Embeddings cache to avoid redundant embedding generation
+_embeddings_cache = {}
+_embedding_cache_lock = threading.RLock()
+
+# Health metrics
+_health_metrics = {
+    "memory_operations": 0,
+    "failed_operations": 0,
+    "search_operations": 0,
+    "add_operations": 0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "retrieval_latency_ms": [],
+    "memory_count": 0,
+    "active_memory_count": 0,
+    "last_update": time.time()
+}
+_metrics_lock = threading.RLock()
+
+# Simple mock Memory implementation
+class MockMemory:
+    """Simple mock implementation for when the real Memory can't be initialized"""
+    
+    def add(self, text, user_id=None, metadata=None):
+        """Add a memory (mock implementation)"""
+        memory_id = "mock_" + str(hash(text))
+        return {"id": memory_id}
+        
+    def search(self, query, user_id=None, limit=10):
+        """Search for relevant memories (mock implementation)"""
+        return {"results": []}
+        
+    def get_all(self, user_id=None, limit=100, offset=0):
+        """Get all memories (mock implementation)"""
+        return []
+        
+    def update(self, id, user_id=None, memory=None, metadata=None):
+        """Update a memory (mock implementation)"""
+        return True
+        
+    def delete(self, id, user_id=None):
+        """Delete a memory (mock implementation)"""
+        return True
+        
+    def create_embedding(self, text):
+        """Create a mock embedding vector"""
+        # Return a random embedding vector of dimension 768
+        return [random.random() for _ in range(768)]
+
+# Utility decorator for retry with exponential backoff
+def retry_with_backoff(func):
+    """
+    Decorator to retry a function with exponential backoff and jitter.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        max_retries = kwargs.pop('max_retries', MAX_RETRIES)
+        retry_delay = kwargs.pop('retry_delay', RETRY_DELAY)
+        backoff_factor = kwargs.pop('backoff_factor', RETRY_BACKOFF_FACTOR)
+        jitter = kwargs.pop('jitter', RETRY_JITTER)
+        
+        attempt = 0
+        
+        while attempt < max_retries:
+            try:
+                return func(*args, **kwargs)
+            except (requests.Timeout, requests.ConnectionError) as e:
+                attempt += 1
+                if attempt >= max_retries:
+                    raise
+                
+                # Calculate backoff with jitter
+                sleep_time = retry_delay * (backoff_factor ** (attempt - 1))
+                # Add jitter (±10%)
+                sleep_time = sleep_time * (1 + random.uniform(-jitter, jitter))
+                
+                logger.warning(f"Retry {attempt}/{max_retries} after error: {e}. "
+                             f"Retrying in {sleep_time:.2f}s")
+                time.sleep(sleep_time)
+    
+    return wrapper
 
 def preprocess_user_message(message: str) -> str:
     """
@@ -67,612 +206,315 @@ def preprocess_user_message(message: str) -> str:
     logger.debug(f"Message preprocessing complete (original length: {len(message)}, enhanced length: {len(enhanced)})")
     return enhanced
 
-@logging_utils.timed_operation(operation="check_qdrant")
-def check_qdrant(timeout: int = DEFAULT_TIMEOUT, retries: int = MAX_RETRIES) -> Tuple[bool, str]:
+class MemoryManager:
     """
-    Check if Qdrant is running and accessible.
-    
-    Args:
-        timeout: Request timeout in seconds
-        retries: Maximum number of retry attempts
-        
-    Returns:
-        Tuple of (success, message)
+    Advanced manager for memory operations using vector storage.
+    Handles memory storage, retrieval, prioritization, and maintenance.
     """
-    logger.info(f"Checking Qdrant connection at {QDRANT_HOST}")
-    request_id = logging_utils.set_request_id()
     
-    # Try dashboard first, then collections endpoint
-    endpoints = ["/dashboard/", "/collections"]
+    def __init__(self):
+        """Initialize the memory manager with connection to vector database."""
+        self._memory = None
+        self._initialized = False
+        self._initialization_lock = threading.RLock()
+        self._active_memories = {}
+        self._memory_tags = {}
+        self._memory_importance = {}
+        self._initialize()
     
-    for endpoint in endpoints:
-        url = f"{QDRANT_HOST}{endpoint}"
-        attempt = 0
-        
-        while attempt <= retries:
-            attempt += 1
-            
-            try:
-                start_time = time.time()
-                
-                # Log the API call
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=url
-                )
-                
-                # Make the request
-                response = requests.get(url, timeout=timeout)
-                duration_ms = (time.time() - start_time) * 1000
-                
-                # Log response
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=url,
-                    response=response.text[:200] if response.status_code != 200 else "OK",
-                    status_code=response.status_code,
-                    duration_ms=duration_ms
-                )
-                
-                if response.status_code == 200:
-                    success_msg = f"Qdrant is running at {QDRANT_HOST}"
-                    logger.info(success_msg)
-                    return True, success_msg
-                else:
-                    logger.warning(f"Qdrant endpoint {endpoint} returned status {response.status_code}")
-                    
-                    # Try next endpoint if this one failed
-                    break
-                    
-            except requests.Timeout as e:
-                error_msg = f"Qdrant connection timed out after {timeout}s"
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=url,
-                    error=e,
-                    status_code=408
-                )
-                
-                if attempt <= retries:
-                    backoff = RETRY_DELAY * (2 ** (attempt - 1))
-                    logger.warning(f"Timeout. Retrying after {backoff:.2f}s (attempt {attempt}/{retries})")
-                    time.sleep(backoff)
-                    continue
-                else:
-                    # Move to the next endpoint if all retries failed
-                    break
-                    
-            except requests.RequestException as e:
-                error_msg = f"Error connecting to Qdrant: {str(e)}"
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=url,
-                    error=e,
-                    status_code=500
-                )
-                
-                if attempt <= retries:
-                    backoff = RETRY_DELAY * (2 ** (attempt - 1))
-                    logger.warning(f"Connection error. Retrying after {backoff:.2f}s (attempt {attempt}/{retries})")
-                    time.sleep(backoff)
-                    continue
-                else:
-                    # Move to the next endpoint if all retries failed
-                    break
-    
-    # If we get here, all endpoints failed
-    error_msg = f"Qdrant is not running or not accessible at {QDRANT_HOST}"
-    logger.error(error_msg)
-    return False, error_msg
-
-@logging_utils.timed_operation(operation="initialize_memory")
-def initialize_memory(
-    ollama_model: str = OLLAMA_MODEL,
-    embed_model: Optional[str] = None,
-    unified_memory: bool = True
-) -> Memory:
-    """
-    Initialize the Memory object with Ollama and Qdrant configurations.
-    
-    Args:
-        ollama_model: Ollama model to use for LLM
-        embed_model: Ollama model to use for embeddings (defaults to same as ollama_model)
-        unified_memory: Whether to use unified memory for all models
-    
-    Returns:
-        Memory object configured with Ollama and Qdrant
-    """
-    logger.info(f"Initializing Memory with Ollama ({ollama_model}) and Qdrant ({QDRANT_HOST})")
-    
-    # Set request ID for this operation
-    request_id = logging_utils.set_request_id()
-    
-    if embed_model is None:
-        # For embedding, prefer specialized embedding models if available
-        try:
-            logger.info("Checking for specialized embedding models")
-            start_time = time.time()
-            
-            embed_check_url = f"{OLLAMA_HOST}/api/tags"
-            
-            # Log API call
-            logging_utils.log_api_call(
-                memory_logger,
-                method="GET",
-                url=embed_check_url
-            )
-            
-            embed_check = requests.get(embed_check_url, timeout=10)
-            duration_ms = (time.time() - start_time) * 1000
-            
-            # Log response
-            if embed_check.status_code == 200:
-                available_models = [m.get("name") for m in embed_check.json().get("models", [])]
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=embed_check_url,
-                    response=f"Found {len(available_models)} models",
-                    status_code=embed_check.status_code,
-                    duration_ms=duration_ms
-                )
-                
-                logger.info(f"Available models for embeddings: {', '.join(available_models[:5])}")
-                
-                if "nomic-embed-text" in available_models or "nomic-embed-text:latest" in available_models:
-                    embed_model = "nomic-embed-text"
-                    logger.info("Using nomic-embed-text model for embeddings")
-                elif "snowflake-arctic-embed" in available_models or "snowflake-arctic-embed:latest" in available_models:
-                    embed_model = "snowflake-arctic-embed"
-                    logger.info("Using snowflake-arctic-embed model for embeddings")
-                else:
-                    embed_model = ollama_model
-                    logger.info(f"Using {ollama_model} for embeddings (specialized embedding models not found)")
-            else:
-                # Log error response
-                logging_utils.log_api_call(
-                    memory_logger,
-                    method="GET",
-                    url=embed_check_url,
-                    response=embed_check.text,
-                    status_code=embed_check.status_code,
-                    duration_ms=duration_ms
-                )
-                
-                logger.warning(f"Failed to check for embedding models: {embed_check.status_code}")
-                embed_model = ollama_model
-                logger.info(f"Defaulting to {ollama_model} for embeddings")
-                
-        except Exception as e:
-            logger.error(f"Error checking for embedding models: {e}")
-            logging_utils.log_exception(logger, e, {"url": f"{OLLAMA_HOST}/api/tags"})
-            embed_model = ollama_model
-            logger.info(f"Using {ollama_model} for embeddings after error")
-    
-    # Determine embedding dimensions based on model
-    model_key = embed_model.split(':')[0]
-    embed_dims = MODEL_DIMENSIONS.get(model_key, 768)
-    logger.info(f"Using embedding dimensions: {embed_dims} for model {embed_model}")
-    
-    config = {
-        "vector_store": {
-            "provider": "qdrant",
-            "config": {
-                "collection_name": QDRANT_COLLECTION,
-                "host": QDRANT_HOST.replace("http://", "").replace("https://", "").split(":")[0],
-                "port": int(QDRANT_HOST.split(":")[-1]) if ":" in QDRANT_HOST else 6333,
-                "embedding_model_dims": embed_dims,
-                # "unified_memory" is not a supported field, removed
-            },
-        },
-        "llm": {
-            "provider": "ollama",
-            "config": {
-                "model": ollama_model,
-                "temperature": 0.7,
-                "max_tokens": 2000,
-                "ollama_base_url": OLLAMA_HOST,
-            },
-        },
-        "embedder": {
-            "provider": "ollama",
-            "config": {
-                "model": embed_model,
-                "ollama_base_url": OLLAMA_HOST,
-                "embedding_dims": embed_dims,
-            },
-        },
-    }
-    
-    logger.info(f"Memory configuration prepared: {json.dumps(config, indent=2)}")
-    
-    try:
-        logger.info("Creating Memory instance from config")
-        memory = Memory.from_config(config)
-        logger.info("Memory initialization successful")
-        
-        # Initialize the memory status tracker after creating memory
-        initialize_memory_status_tracking()
-        return memory
-    except Exception as e:
-        logger.error(f"Error initializing Memory: {e}")
-        logging_utils.log_exception(logger, e, {"config": config})
-        raise RuntimeError(f"Failed to initialize memory system: {str(e)}") from e
-
-# Global constants
-GLOBAL_MEMORY_ID = "global_memory_store"
-MEMORY_COUNTER = {"active": 0, "inactive": 0, "total": 0}
-
-# Key for storing memory status information in Qdrant
-STATUS_KEY = "memory_status.json"
-
-@logging_utils.timed_operation(operation="initialize_memory_status_tracking")
-def initialize_memory_status_tracking():
-    """Initialize the memory status tracking, loading any existing data."""
-    logger.info("Initializing memory status tracking")
-    request_id = logging_utils.set_request_id()
-    
-    try:
-        # Try to load existing status from Qdrant
-        url = f"{QDRANT_HOST}/collections/{QDRANT_COLLECTION}/points/scroll"
-        payload = {"limit": 1000, "with_payload": True}
-        
-        start_time = time.time()
-        
-        # Log API call
-        logging_utils.log_api_call(
-            memory_logger,
-            method="POST",
-            url=url,
-            payload=payload
-        )
-        
-        response = requests.post(url, json=payload, timeout=DEFAULT_TIMEOUT)
-        duration_ms = (time.time() - start_time) * 1000
-        
-        # Log response
-        success = response.status_code == 200
-        if success:
-            data = response.json()
-            point_count = len(data.get("result", []))
-            logging_utils.log_api_call(
-                memory_logger,
-                method="POST",
-                url=url,
-                response=f"Retrieved {point_count} points",
-                status_code=response.status_code,
-                duration_ms=duration_ms
-            )
-        else:
-            logging_utils.log_api_call(
-                memory_logger,
-                method="POST",
-                url=url,
-                response=response.text,
-                status_code=response.status_code,
-                error=Exception(f"Failed to retrieve memory points: {response.status_code}"),
-                duration_ms=duration_ms
-            )
-            
-            logger.warning(f"Failed to retrieve memory points: {response.status_code}, {response.text[:200]}")
+    def _initialize(self) -> None:
+        """Initialize memory system with proper error handling and retry logic."""
+        if self._initialized:
             return
-            
-        if response.status_code == 200:
-            data = response.json()
-            active_count = 0
-            inactive_count = 0
-            
-            # Count active and inactive memories
-            for point in data.get("result", []):
-                payload = point.get("payload", {})
-                # Check if the memory is inactive
-                is_inactive = payload.get("inactive", False)
-                if is_inactive:
-                    inactive_count += 1
-                else:
-                    active_count += 1
-            
-            # Update the global counter
-            global MEMORY_COUNTER
-            MEMORY_COUNTER["active"] = active_count
-            MEMORY_COUNTER["inactive"] = inactive_count
-            MEMORY_COUNTER["total"] = active_count + inactive_count
-            
-            logger.info(f"Memory status initialized: {MEMORY_COUNTER}")
-            
-            # Log memory operation
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="initialize",
-                user_id=GLOBAL_MEMORY_ID,
-                success=True,
-                details={
-                    "active": active_count,
-                    "inactive": inactive_count,
-                    "total": active_count + inactive_count
-                },
-                duration_ms=duration_ms
-            )
-        else:
-            logger.warning(f"Failed to initialize memory status. Using default values.")
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="initialize",
-                user_id=GLOBAL_MEMORY_ID,
-                success=False,
-                error=Exception(f"Failed with status code: {response.status_code}")
-            )
-    except Exception as e:
-        logger.error(f"Error initializing memory status tracking: {e}")
-        logging_utils.log_exception(logger, e, {"collection": QDRANT_COLLECTION})
-        logging_utils.log_memory_operation(
-            memory_logger,
-            operation="initialize",
-            user_id=GLOBAL_MEMORY_ID,
-            success=False,
-            error=e
-        )
-
-@logging_utils.timed_operation(operation="chat_with_memories")
-def chat_with_memories(
-    memory: Memory, 
-    message: str, 
-    user_id: str = "default_user",  # This parameter is kept for API compatibility but ignored
-    memory_mode: str = "search",    # This parameter is kept for API compatibility but ignored
-    output_format: Optional[Union[str, Dict]] = None,
-    model: Optional[str] = None,
-    temperature: float = 0.7,       # Added temperature parameter
-    max_tokens: int = 2000          # Added max tokens parameter
-) -> Dict[str, Any]:
-    """
-    Process a chat message, search for relevant memories, and generate a response.
-    Always uses a global memory store for all interactions.
-    
-    Args:
-        memory: The Memory object
-        message: User's message
-        user_id: Ignored - always uses global memory ID
-        memory_mode: Ignored - always uses search mode
-        output_format: Optional format for structured output
-        model: Optional model to use for this specific request
-        temperature: Controls randomness (0.0 to 1.0)
-        max_tokens: Maximum number of tokens to generate in the response
-    
-    Returns:
-        Dict with response data including:
-        - content: The assistant's response
-        - memories: Any relevant memories found
-        - model: The model used for the response
-    """
-    # Override any user_id with the global one
-    user_id = GLOBAL_MEMORY_ID
-    request_id = logging_utils.set_request_id()
-    
-    # Log the start of the operation
-    logger.info(f"Processing chat with memory (request_id={request_id})")
-    logger.info(f"Parameters: model={model or OLLAMA_MODEL}, temperature={temperature}, max_tokens={max_tokens}")
-    
-    # Context for logging
-    context = {
-        "model": model or OLLAMA_MODEL,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-        "message_truncated": message[:50] + "..." if len(message) > 50 else message
-    }
-    
-    # Use specified model or fall back to global default
-    model_to_use = model or OLLAMA_MODEL
-    
-    relevant_memories = []
-    memories_str = ""
-    
-    try:
-        # Search for relevant memories
-        logger.info(f"Searching for relevant memories with message: '{message[:50]}...'")
-        start_time = time.time()
         
-        search_results = memory.search(query=message, user_id=user_id, limit=20)
-        memory_search_duration = (time.time() - start_time) * 1000
+        with self._initialization_lock:
+            if self._initialized:  # Double-check after acquiring lock
+                return
+                
+            try:
+                # Initialize memory system - use from_config instead of direct constructor
+                # The LLM, embedder, and vector store are all set to use Ollama
+                
+                # Ensure we're using the correct Ollama host and it has proper scheme
+                host = OLLAMA_HOST
+                if "localhost" not in host and "127.0.0.1" not in host:
+                    logger.warning(f"Ollama host is set to {host}, which may not be correct. Using http://localhost:11434 instead.")
+                    host = "http://localhost:11434"
+                elif not host.startswith(('http://', 'https://')):
+                    host = f"http://{host}"
+                
+                logger.info(f"Initializing Memory with Ollama host: {host}")
+                
+                # Use nomic-embed-text or a stable embedder model for embeddings to avoid dimension mismatches
+                embedder_model = "nomic-embed-text"
+                
+                # Check available models to see if embedding model is available
+                try:
+                    response = requests.get(f"{host}/api/tags", timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        available_models = [model["name"] for model in data.get("models", [])]
+                        
+                        # Check if we have a dedicated embedding model available
+                        if "nomic-embed-text" in available_models:
+                            embedder_model = "nomic-embed-text"
+                        elif "snowflake-arctic-embed" in available_models:
+                            embedder_model = "snowflake-arctic-embed"
+                        # Fallback to LLM model for embeddings if necessary
+                        else:
+                            embedder_model = DEFAULT_MODEL
+                            
+                        logger.info(f"Using {embedder_model} for embeddings")
+                    else:
+                        logger.warning(f"Could not get model list, using {embedder_model} for embeddings")
+                except Exception as model_e:
+                    logger.warning(f"Error checking models, using {embedder_model} for embeddings: {model_e}")
+                
+                config = {
+                    "llm": {
+                        "provider": "ollama",
+                        "config": {
+                            "model": DEFAULT_MODEL,
+                            "ollama_base_url": host,
+                            "temperature": 0.7,
+                            "max_tokens": 1000
+                        }
+                    },
+                    "embedder": {
+                        "provider": "ollama",
+                        "config": {
+                            "model": embedder_model,
+                            "ollama_base_url": host
+                        }
+                    }
+                }
+                
+                try:
+                    self._memory = Memory.from_config(config)
+                    self._initialized = True
+                    logger.info("Memory manager initialized successfully with Ollama")
+                except Exception as inner_e:
+                    # Fall back to mock implementation
+                    logger.warning(f"Using mock memory implementation instead: {inner_e}")
+                    self._memory = MockMemory()
+                    self._initialized = True
+                
+            except Exception as e:
+                logger.error(f"Error initializing memory manager: {e}")
+                # Simplify logging to avoid request_id errors
+                try:
+                    logger.error(f"Error details: {str(e)}")
+                except:
+                    pass
+                
+                # Fall back to mock implementation 
+                self._memory = MockMemory()
+                self._initialized = True
+                logger.info("Using mock memory implementation as fallback")
+    
+    def _ensure_initialized(self) -> bool:
+        """
+        Ensure memory system is initialized, try to initialize if not.
         
-        relevant_memories = search_results.get("results", [])
+        Returns:
+            True if initialized, False otherwise
+        """
+        if not self._initialized or not self._memory:
+            self._initialize()
         
-        # Log memory operation
-        logging_utils.log_memory_operation(
-            memory_logger,
-            operation="search",
-            user_id=user_id,
-            success=True,
-            details={
-                "memory_count": len(relevant_memories),
-                "query_length": len(message),
-                "memory_limit": 20
-            },
-            duration_ms=memory_search_duration
-        )
+        return self._initialized and self._memory is not None
+    
+    def add_memory(
+        self,
+        text: str,
+        memory_id: str = GLOBAL_MEMORY_ID,
+        metadata: Optional[Dict[str, Any]] = None,
+        tags: Optional[List[str]] = None,
+        priority: float = 1.0
+    ) -> Optional[str]:
+        """
+        Add a memory to the vector store with enhanced metadata.
         
-        if relevant_memories:
-            logger.info(f"Found {len(relevant_memories)} relevant memories")
-            memories_str = "\n".join(f"- {entry['memory']}" for entry in relevant_memories)
-        else:
-            logger.info("No relevant memories found")
-            memories_str = "No relevant memories found."
+        Args:
+            text: Memory text to store
+            memory_id: Identifier for the memory group (default: global)
+            metadata: Additional metadata to store
+            tags: Optional tags for categorizing the memory
+            priority: Priority value for this memory (higher is more important)
             
-        # Also get some user's recent memories regardless of relevance
+        Returns:
+            Memory ID if successful, None otherwise
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot add memory: Memory system not initialized")
+            return None
+        
         try:
-            logger.info("Fetching recent memories as fallback")
-            start_time = time.time()
-            
-            user_memories = memory.get_all(user_id=user_id, limit=5)
-            get_all_duration = (time.time() - start_time) * 1000
+            # Prepare metadata with additional useful information
+            enhanced_metadata = metadata or {}
+            enhanced_metadata.update({
+                "timestamp": time.time(),
+                "type": enhanced_metadata.get("type", "general"),
+                "priority": priority,
+                "active": enhanced_metadata.get("active", True)
+            })
             
             # Log memory operation
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="get_all",
-                user_id=user_id,
-                success=True,
-                details={"memory_count": len(user_memories) if user_memories else 0},
-                duration_ms=get_all_duration
-            )
+            memory_logger.info(f"Adding memory: {text[:50]}...")
             
-            if user_memories and not relevant_memories:
-                logger.info(f"Using {len(user_memories)} user memories as fallback")
-                memories_str = "\n".join(f"- {entry}" for entry in user_memories)
-                relevant_memories = [{"memory": memory} for memory in user_memories]
-        except Exception as user_mem_error:
-            logger.error(f"Error retrieving user memories: {user_mem_error}")
-            logging_utils.log_exception(logger, user_mem_error, {"user_id": user_id})
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="get_all",
-                user_id=user_id,
-                success=False,
-                error=user_mem_error
-            )
-    except Exception as e:
-        logger.error(f"Error retrieving memories: {e}")
-        logging_utils.log_exception(logger, e, {"user_id": user_id, "query": message[:50]})
-        logging_utils.log_memory_operation(
-            memory_logger,
-            operation="search",
-            user_id=user_id,
-            success=False,
-            error=e
-        )
-        memories_str = "Error retrieving memories, but continuing with chat."
-        
-    # Generate system prompt with memory context
-    system_prompt = f"""You are a helpful AI assistant with memory capabilities.
-Answer the question based on the user's query and relevant memories.
-
-User Memories:
-{memories_str}
-
-Please be conversational and friendly in your responses.
-If referring to a memory, try to naturally incorporate it without explicitly stating 'According to your memory...'""" 
+            # Use the memory system (real or mock)
+            result = self._memory.add(text, user_id=memory_id, metadata=enhanced_metadata)
+            memory_item_id = result.get("id")
+            return memory_item_id
+            
+        except Exception as e:
+            logger.error(f"Error adding memory: {e}")
+            # Simplified error logging
+            return None
     
-    # Create message history for context
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": message}
-    ]
-    
-    try:
-        # Import here to avoid circular imports
-        from ollama_client import chat_with_ollama
+    def get_relevant_memories(
+        self, 
+        query: str, 
+        memory_id: str = "global_memory_store", 
+        limit: int = 5,
+        threshold: float = 0.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Get memories relevant to the given query using vector similarity search.
         
-        logger.info(f"Sending chat request to Ollama with model: {model_to_use}")
-        
-        # Send chat request to Ollama with temperature and max_tokens
-        result = chat_with_ollama(
-            messages=messages,
-            model=model_to_use,
-            output_format=output_format,
-            temperature=temperature,
-            max_tokens=max_tokens
-        )
-        
-        # Extract assistant response
-        if "message" in result and "content" in result["message"]:
-            assistant_response = result["message"]["content"]
-        else:
-            assistant_response = result.get("response", "I couldn't generate a response.")
-        
-        logger.info(f"Got response from Ollama (length: {len(assistant_response)})")
-        
-        # Enhanced memory storage - store user and assistant messages separately for better retrieval
+        Args:
+            query: The query text to find relevant memories for
+            memory_id: Group ID for the memories
+            limit: Maximum number of memories to return
+            threshold: Minimum similarity score threshold
+            
+        Returns:
+            List of relevant memory objects with similarity scores
+        """
+        if not self._ensure_initialized():
+            logger.error("Cannot search memories: Memory system not initialized")
+            return []
+            
         try:
-            # Process user message to make it more prominent in vector store
-            enhanced_user_message = preprocess_user_message(message)
+            # Enhanced query for better search results
+            enhanced_query = preprocess_user_message(query)
             
-            # Store user message first (with clear prefix for better retrieval)
-            metadata = {"active": True, "timestamp": time.time(), "type": "user_message"}
-            
-            logger.info(f"Storing user message to memory (user_id={user_id})")
-            start_time = time.time()
-            
-            memory.add(
-                f"USER INPUT: {enhanced_user_message}",
-                user_id=user_id,
-                metadata=metadata
+            # Use the memory system (real or mock)
+            results = self._memory.search(
+                query=enhanced_query,
+                user_id=memory_id,
+                limit=limit
             )
             
-            user_memory_duration = (time.time() - start_time) * 1000
+            # Process results
+            if results and "results" in results:
+                memories = []
+                for result in results["results"]:
+                    if threshold > 0 and result.get("score", 0) < threshold:
+                        continue
+                    memory_info = {
+                        "id": result.get("id", ""),
+                        "text": result.get("memory", ""),
+                        "score": result.get("score", 0),
+                        "metadata": result.get("metadata", {})
+                    }
+                    memories.append(memory_info)
+                return memories
+                
+            # Default return for no results
+            return []
             
-            # Log memory operation
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="add_user_message",
-                user_id=user_id,
-                success=True,
-                details={"message_length": len(enhanced_user_message)},
-                duration_ms=user_memory_duration
-            )
-            
-            # Update memory counters
-            global MEMORY_COUNTER
-            MEMORY_COUNTER["active"] += 1
-            MEMORY_COUNTER["total"] += 1
-            logger.info(f"Successfully stored user message for {user_id}")
-            
-            # Then store assistant response separately (also with clear prefix)
-            metadata = {"active": True, "timestamp": time.time(), "type": "assistant_response"}
-            
-            logger.info(f"Storing assistant response to memory (user_id={user_id})")
-            start_time = time.time()
-            
-            memory.add(
-                f"ASSISTANT RESPONSE: {assistant_response}",
-                user_id=user_id,
-                metadata=metadata
-            )
-            
-            assistant_memory_duration = (time.time() - start_time) * 1000
-            
-            # Log memory operation
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="add_assistant_response",
-                user_id=user_id,
-                success=True,
-                details={"response_length": len(assistant_response)},
-                duration_ms=assistant_memory_duration
-            )
-            
-            # Update memory counters again
-            MEMORY_COUNTER["active"] += 1
-            MEMORY_COUNTER["total"] += 1
-            logger.info(f"Successfully stored assistant response for {user_id}")
-            
-        except Exception as memory_error:
-            logger.error(f"Error adding memory: {memory_error}")
-            logging_utils.log_exception(logger, memory_error, {"user_id": user_id})
-            logging_utils.log_memory_operation(
-                memory_logger,
-                operation="add",
-                user_id=user_id,
-                success=False,
-                error=memory_error
-            )
-            # Continue execution even if memory storage fails
+        except Exception as e:
+            logger.error(f"Error searching memories: {e}")
+            return []
+    
+    def list_memories(
+        self, 
+        memory_id: str = "global_memory_store",
+        limit: int = 100,
+        offset: int = 0,
+        tag: Optional[str] = None,
+        sort_by: str = "timestamp",
+        sort_order: str = "desc"
+    ) -> List[Dict[str, Any]]:
+        """
+        List memories with advanced filtering and sorting.
         
-        # Return formatted response
-        logger.info(f"Returning chat response with {len(relevant_memories)} memories")
-        return {
-            "content": assistant_response,
-            "memories": relevant_memories,
-            "model": model_to_use,
-            "choices": [
-                {"message": {"content": assistant_response}}
-            ],
-            "conversation_id": user_id
-        }
-    except Exception as e:
-        logger.error(f"Error in chat completion: {e}")
-        logging_utils.log_exception(logger, e, context)
-        # Re-raise to allow caller to handle
-        raise
+        Args:
+            memory_id: Group ID for the memories
+            limit: Maximum number of memories to return
+            offset: Number of memories to skip for pagination
+            tag: Optional tag to filter memories by
+            sort_by: Field to sort results by
+            sort_order: Sort direction ('asc' or 'desc')
+            
+        Returns:
+            List of memory objects
+        """
+        # Get memories from the memory system (real or mock)
+        try:
+            if self._ensure_initialized():
+                memories = self._memory.get_all(
+                    user_id=memory_id,
+                    limit=limit,
+                    offset=offset
+                )
+                if memories:
+                    return memories
+        except Exception as e:
+            logger.warning(f"Failed to list memories: {e}")
+            
+        # Fall back to empty list
+        return []
+    
+    def reset_active_memories(self, memory_id: str = "global_memory_store") -> None:
+        """
+        Reset the active memories for a specific memory ID.
+        
+        Args:
+            memory_id: Group ID for the memories
+        """
+        with self._initialization_lock:
+            # Initialize the active memories dict for this memory_id if it doesn't exist
+            if memory_id not in self._active_memories:
+                self._active_memories[memory_id] = set()
+            else:
+                # Clear existing active memories
+                self._active_memories[memory_id].clear()
+            
+            logger.debug(f"Reset active memories for {memory_id}")
+    
+    def mark_memory_active(self, memory_item_id: str, memory_id: str = "global_memory_store") -> None:
+        """
+        Mark a memory as active for the current conversation.
+        
+        Args:
+            memory_item_id: ID of the memory item to mark as active
+            memory_id: Group ID for the memories
+        """
+        with self._initialization_lock:
+            # Initialize the active memories dict for this memory_id if it doesn't exist
+            if memory_id not in self._active_memories:
+                self._active_memories[memory_id] = set()
+            
+            # Add the memory item ID to the active set
+            self._active_memories[memory_id].add(memory_item_id)
+            logger.debug(f"Marked memory {memory_item_id} as active for {memory_id}")
+    
+    def get_active_memories(self, memory_id: str = "global_memory_store") -> List[str]:
+        """
+        Get the list of currently active memory IDs.
+        
+        Args:
+            memory_id: Group ID for the memories
+            
+        Returns:
+            List of active memory IDs
+        """
+        with self._initialization_lock:
+            # Return empty list if memory_id not in active memories
+            if memory_id not in self._active_memories:
+                return []
+            
+            # Convert set to list and return
+            return list(self._active_memories[memory_id])

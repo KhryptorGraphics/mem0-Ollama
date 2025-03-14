@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mem0-Ollama Chat Interface</title>
+    <style>
+        :root {
+            --primary-color: #0066cc;
+            --secondary-color: #f0f3f8;
+            --accent-color: #00aaff;
+            --text-color: #333;
+            --light-text: #666;
+            --border-color: #ddd;
+            --success-color: #28a745;
+            --warning-color: #ffc107;
+            --error-color: #dc3545;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: var(--text-color);
+            background-color: #f5f7fb;
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            width: 100%;
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0;
+            flex: 1;
+        }
+
+        /* Sidebar / Control Panel */
+        .sidebar {
+            width: 320px;
+            background-color: white;
+            border-right: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar h2 {
+            margin-bottom: 20px;
+            font-size: 1.4rem;
+            color: var(--primary-color);
+        }
+
+        .sidebar h3 {
+            margin: 15px 0 10px;
+            font-size: 1.1rem;
+            color: var(--text-color);
+        }
+
+        .sidebar label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: var(--light-text);
+            font-size: 0.9rem;
+        }
+
+        .sidebar select, 
+        .sidebar input[type="text"],
+        .sidebar input[type="number"],
+        .sidebar textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 0.9rem;
+        }
+
+        .sidebar input[type="range"] {
+            width: 100%;
+            margin: 5px 0 15px;
+        }
+
+        .value-display {
+            font-size: 0.8rem;
+            color: var(--light-text);
+            text-align: right;
+            margin-top: -12px;
+            margin-bottom: 10px;
+        }
+
+        .memory-section {
+            margin-top: 20px;
+            border-top: 1px solid var(--border-color);
+            padding-top: 15px;
+        }
+
+        .memory-list {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: var(--secondary-color);
+        }
+
+        .memory-item {
+            padding: 8px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+
+        .memory-item:last-child {
+            border-bottom: none;
+        }
+
+        /* Main Chat Area */
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            background-color: #fff;
+        }
+
+        .chat-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: white;
+        }
+
+        .chat-header h1 {
+            font-size: 1.5rem;
+            color: var(--primary-color);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            color: var(--light-text);
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-connected {
+            background-color: var(--success-color);
+        }
+
+        .status-disconnected {
+            background-color: var(--error-color);
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background-color: var(--secondary-color);
+        }
+
+        .message {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+            max-width: 80%;
+        }
+
+        .message-user {
+            align-self: flex-end;
+        }
+
+        .message-assistant {
+            align-self: flex-start;
+        }
+
+        .message-content {
+            padding: 12px 15px;
+            border-radius: 18px;
+            font-size: 0.95rem;
+            position: relative;
+            word-break: break-word;
+        }
+
+        .message-user .message-content {
+            background-color: var(--primary-color);
+            color: white;
+            border-top-right-radius: 4px;
+        }
+
+        .message-assistant .message-content {
+            background-color: var(--secondary-color);
+            color: var(--text-color);
+            border-top-left-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        .message-time {
+            font-size: 0.75rem;
+            color: var(--light-text);
+            margin-top: 5px;
+            align-self: flex-end;
+        }
+
+        .message-user .message-time {
+            margin-right: 5px;
+        }
+
+        .message-assistant .message-time {
+            margin-left: 5px;
+        }
+
+        .chat-input-container {
+            padding: 15px 20px;
+            border-top: 1px solid var(--border-color);
+            background-color: white;
+            display: flex;
+            align-items: center;
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            font-size: 0.95rem;
+            resize: none;
+            max-height: 120px;
+            overflow-y: auto;
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--accent-color);
+        }
+
+        .send-button {
+            margin-left: 10px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .send-button:hover {
+            background-color: var(--accent-color);
+        }
+
+        .send-button svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .thinking {
+            display: flex;
+            align-items: center;
+            margin: 10px 0;
+            color: var(--light-text);
+            font-style: italic;
+        }
+
+        .dot-flashing {
+            position: relative;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--light-text);
+            animation: dot-flashing 1s infinite linear alternate;
+            animation-delay: 0.5s;
+            margin: 0 2px;
+        }
+
+        .dot-flashing::before, .dot-flashing::after {
+            content: "";
+            display: inline-block;
+            position: absolute;
+            top: 0;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: var(--light-text);
+            animation: dot-flashing 1s infinite alternate;
+        }
+
+        .dot-flashing::before {
+            left: -12px;
+            animation-delay: 0s;
+        }
+
+        .dot-flashing::after {
+            left: 12px;
+            animation-delay: 1s;
+        }
+
+        @keyframes dot-flashing {
+            0% { background-color: var(--light-text); }
+            50%, 100% { background-color: rgba(152, 162, 179, 0.2); }
+        }
+
+        /* Markdown styling for messages */
+        .markdown {
+            line-height: 1.5;
+        }
+
+        .markdown p {
+            margin-bottom: 8px;
+        }
+
+        .markdown h1, .markdown h2, .markdown h3 {
+            margin-top: 16px;
+            margin-bottom: 8px;
+        }
+
+        .markdown ul, .markdown ol {
+            margin-left: 20px;
+            margin-bottom: 8px;
+        }
+
+        .markdown code {
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'Courier New', Courier, monospace;
+        }
+
+        .markdown pre {
+            background-color: rgba(0, 0, 0, 0.05);
+            padding: 10px;
+            border-radius: 3px;
+            overflow-x: auto;
+            margin-bottom: 10px;
+        }
+
+        .markdown pre code {
+            background-color: transparent;
+            padding: 0;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 1000px) {
+            .container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                max-height: 50vh;
+                border-right: none;
+                border-bottom: 1px solid var(--border-color);
+            }
+
+            .chat-container {
+                height: auto;
+                flex: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Control Panel / Sidebar -->
+        <div class="sidebar">
+            <h2>Control Panel</h2>
+            
+            <h3>Model Settings</h3>
+            <div style="display: flex; align-items: center; margin-bottom: 5px;">
+                <label for="model-select" style="margin-bottom: 0; margin-right: 10px;">Model:</label>
+                <button id="refresh-models" title="Refresh model list" style="background: none; border: 1px solid var(--border-color); border-radius: 4px; padding: 2px 5px; cursor: pointer;">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                    </svg>
+                </button>
+            </div>
+            <select id="model-select">
+                <option value="" selected disabled>Loading models...</option>
+            </select>
+            <div id="model-status" style="font-size: 0.8rem; color: var(--light-text); margin-top: 2px; margin-bottom: 10px;"></div>
+            
+            <label for="system-prompt">System Prompt:</label>
+            <textarea id="system-prompt" rows="4">You are a helpful assistant with access to memory. When relevant information from memory is provided, use it to inform your responses.</textarea>
+            
+            <h3>Generation Parameters</h3>
+            <label for="temperature">Temperature: <span id="temperature-value">0.7</span></label>
+            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7">
+            
+            <label for="top-p">Top P: <span id="top-p-value">0.9</span></label>
+            <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.9">
+            
+            <label for="max-tokens">Max Tokens:</label>
+            <input type="number" id="max-tokens" min="1" max="4096" value="2000">
+            
+            <div class="memory-section">
+                <h3>Memory Management</h3>
+                <label for="memory-id">Memory ID:</label>
+                <input type="text" id="memory-id" value="default">
+                
+                <button id="clear-memory" class="btn" style="margin-top: 10px; padding: 8px; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear Conversation</button>
+                
+                <h3>Memory System</h3>
+                <div style="margin-bottom: 10px;">
+                    <div>
+                        <input type="radio" id="memory-auto" name="memory-system" value="auto" checked>
+                        <label for="memory-auto">Auto (Best Available)</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="memory-mem0ai" name="memory-system" value="mem0ai">
+                        <label for="memory-mem0ai">Force Mem0AI + Qdrant</label>
+                    </div>
+                    <div>
+                        <input type="radio" id="memory-fallback" name="memory-system" value="fallback">
+                        <label for="memory-fallback">Force File-based Fallback</label>
+                    </div>
+                </div>
+                
+                <div id="memory-system-status" style="font-size: 0.8rem; margin-bottom: 10px; padding: 5px; border-radius: 4px; background-color: #f0f0f0;">
+                    <div>Status: <span id="memory-current-mode">Loading...</span></div>
+                    <div>Mem0AI Available: <span id="memory-mem0ai-available">Unknown</span></div>
+                </div>
+                
+                <button id="apply-memory-system" class="btn" style="margin-bottom: 15px; padding: 5px 10px; background-color: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer;">Apply Memory Settings</button>
+                
+                <div id="memory-stats" style="font-size: 0.8rem; margin-bottom: 10px; padding: 5px; border-radius: 4px; background-color: #e9ecef;">
+                    <div>Memory Stats:</div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+                        <div>Active: <span id="active-memories-count">0</span></div>
+                        <div>Total: <span id="total-memories-count">0</span></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 3px;">
+                        <div>mem0ai: <span id="mem0ai-memories-count">0</span></div>
+                        <div>fallback: <span id="fallback-memories-count">0</span></div>
+                    </div>
+                </div>
+                
+                <h3>Active Memories</h3>
+                <div class="memory-list" id="memory-list">
+                    <div class="memory-item">No memories yet</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Chat Area -->
+        <div class="chat-container">
+            <div class="chat-header">
+                <h1>Mem0-Ollama Chat</h1>
+                <div class="status-indicator">
+                    <div id="status-dot" class="status-dot status-disconnected"></div>
+                    <span id="status-text">Checking connection...</span>
+                </div>
+            </div>
+            
+            <div class="chat-messages" id="chat-messages">
+                <!-- Messages will be added here -->
+                <div class="message message-assistant">
+                    <div class="message-content">
+                        Hello! I'm your AI assistant powered by Ollama. How can I help you today?
+                    </div>
+                    <div class="message-time">just now</div>
+                </div>
+            </div>
+            
+            <div class="chat-input-container">
+                <textarea 
+                    id="chat-input" 
+                    class="chat-input" 
+                    placeholder="Type your message here..." 
+                    rows="1" 
+                    onkeydown="if(event.keyCode === 13 && !event.shiftKey) { event.preventDefault(); sendMessage(); }"></textarea>
+                <button id="send-button" class="send-button" onclick="sendMessage()">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const chatMessages = document.getElementById('chat-messages');
+        const chatInput = document.getElementById('chat-input');
+        const sendButton = document.getElementById('send-button');
+        const modelSelect = document.getElementById('model-select');
+        const refreshModelsButton = document.getElementById('refresh-models');
+        const modelStatus = document.getElementById('model-status');
+        const systemPrompt = document.getElementById('system-prompt');
+        const temperatureSlider = document.getElementById('temperature');
+        const temperatureValue = document.getElementById('temperature-value');
+        const topPSlider = document.getElementById('top-p');
+        const topPValue = document.getElementById('top-p-value');
+        const maxTokensInput = document.getElementById('max-tokens');
+        const memoryIdInput = document.getElementById('memory-id');
+        const clearMemoryButton = document.getElementById('clear-memory');
+        const memoryList = document.getElementById('memory-list');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        // Model refresh interval (60 seconds)
+        const MODEL_REFRESH_INTERVAL = 60000;
+        let modelRefreshTimer;
+        let currentSelectedModel = null;
+
+        // Event listeners for sliders
+        temperatureSlider.addEventListener('input', function() {
+            temperatureValue.textContent = this.value;
+        });
+
+        topPSlider.addEventListener('input', function() {
+            topPValue.textContent = this.value;
+        });
+
+        // Refresh models button
+        refreshModelsButton.addEventListener('click', function() {
+            this.disabled = true;
+            fetchModels().finally(() => {
+                this.disabled = false;
+            });
+        });
+
+        // Auto-resize textarea
+        chatInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Clear memory button
+        clearMemoryButton.addEventListener('click', function() {
+            if (confirm('Are you sure you want to clear the conversation history?')) {
+                chatMessages.innerHTML = '<div class="message message-assistant"><div class="message-content">Conversation and memories cleared. How can I help you?</div><div class="message-time">just now</div></div>';
+                updateMemoryList([]);
+            }
+        });
+
+        // Fetch models from Ollama
+        async function fetchModels() {
+            try {
+                modelStatus.textContent = "Refreshing model list...";
+                
+                const response = await fetch('/api/tags');
+                if (!response.ok) {
+                    throw new Error(`Server returned status ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                // Save current selection if any
+                currentSelectedModel = modelSelect.value || null;
+                
+                // Update model dropdown
+                if (data.models && Array.isArray(data.models) && data.models.length > 0) {
+                    modelSelect.innerHTML = '';
+                    
+                    // Sort models alphabetically
+                    const sortedModels = [...data.models].sort((a, b) => 
+                        a.name.localeCompare(b.name)
+                    );
+                    
+                    sortedModels.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model.name;
+                        option.textContent = model.name;
+                        
+                        // Restore selection or select llama3 (or first model) as default
+                        if ((currentSelectedModel && model.name === currentSelectedModel) || 
+                            (!currentSelectedModel && model.name === 'llama3') || 
+                            (!currentSelectedModel && !sortedModels.find(m => m.name === 'llama3') && 
+                             sortedModels[0] === model)) {
+                            option.selected = true;
+                            currentSelectedModel = model.name;
+                        }
+                        
+                        modelSelect.appendChild(option);
+                    });
+                    
+                    modelStatus.textContent = `${data.models.length} models available`;
+                    updateConnectionStatus(true);
+                    return true;
+                } else {
+                    modelStatus.textContent = "No models found";
+                    return false;
+                }
+            } catch (error) {
+                console.error('Error fetching models:', error);
+                modelStatus.textContent = `Error: ${error.message}`;
+                updateConnectionStatus(false);
+                return false;
+            }
+        }
+
+        // Check server connection and set up periodic refresh
+        async function initializeModelList() {
+            const success = await fetchModels();
+            
+            // Set up periodic refresh
+            if (modelRefreshTimer) {
+                clearInterval(modelRefreshTimer);
+            }
+            
+            modelRefreshTimer = setInterval(fetchModels, MODEL_REFRESH_INTERVAL);
+            
+            return success;
+        }
+
+        function updateConnectionStatus(connected) {
+            if (connected) {
+                statusDot.className = 'status-dot status-connected';
+                statusText.textContent = 'Connected';
+            } else {
+                statusDot.className = 'status-dot status-disconnected';
+                statusText.textContent = 'Disconnected';
+            }
+        }
+
+        // Format date for message timestamps
+        function formatDate(date) {
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Add a new message to the chat
+        function addMessage(content, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = isUser ? 'message message-user' : 'message message-assistant';
+            
+            const messageContent = document.createElement('div');
+            messageContent.className = 'message-content markdown';
+            
+            // For user messages, just set the text content
+            if (isUser) {
+                messageContent.textContent = content;
+            } else {
+                // For assistant messages, render markdown
+                messageContent.innerHTML = renderMarkdown(content);
+            }
+            
+            const messageTime = document.createElement('div');
+            messageTime.className = 'message-time';
+            messageTime.textContent = formatDate(new Date());
+            
+            messageDiv.appendChild(messageContent);
+            messageDiv.appendChild(messageTime);
+            
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Simple markdown renderer
+        function renderMarkdown(text) {
+            if (!text) return '';
+            
+            // Replace code blocks
+            text = text.replace(/```([\s\S]*?)```/g, function(match, p1) {
+                return `<pre><code>${p1.trim()}</code></pre>`;
+            });
+            
+            // Replace inline code
+            text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+            
+            // Replace headers
+            text = text.replace(/^### (.*)$/gm, '<h3>$1</h3>');
+            text = text.replace(/^## (.*)$/gm, '<h2>$1</h2>');
+            text = text.replace(/^# (.*)$/gm, '<h1>$1</h1>');
+            
+            // Replace bold
+            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            // Replace italic
+            text = text.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+            
+            // Replace lists (simple implementation)
+            text = text.replace(/^- (.*)$/gm, '<li>$1</li>');
+            text = text.replace(/<li>(.*)<\/li>(?!\n<li>)/g, '<ul><li>$1</li></ul>');
+            
+            // Replace newlines with paragraphs
+            const paragraphs = text.split('\n\n');
+            for (let i = 0; i < paragraphs.length; i++) {
+                if (!paragraphs[i].startsWith('<h') && 
+                    !paragraphs[i].startsWith('<ul') && 
+                    !paragraphs[i].startsWith('<pre')) {
+                    paragraphs[i] = `<p>${paragraphs[i]}</p>`;
+                }
+            }
+            
+            return paragraphs.join('');
+        }
+
+        // Add thinking indicator
+        function addThinkingIndicator() {
+            const thinkingDiv = document.createElement('div');
+            thinkingDiv.className = 'thinking';
+            thinkingDiv.id = 'thinking-indicator';
+            thinkingDiv.innerHTML = 'Thinking<div class="dot-flashing"></div>';
+            chatMessages.appendChild(thinkingDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Remove thinking indicator
+        function removeThinkingIndicator() {
+            const thinkingIndicator = document.getElementById('thinking-indicator');
+            if (thinkingIndicator) {
+                thinkingIndicator.remove();
+            }
+        }
+
+        // Update memory list
+        function updateMemoryList(memories, groupedMemories) {
+            if ((!memories || memories.length === 0) && (!groupedMemories || Object.keys(groupedMemories).length === 0)) {
+                memoryList.innerHTML = '<div class="memory-item">No memories yet</div>';
+                return;
+            }
+            
+            memoryList.innerHTML = '';
+            
+            // Check if we have grouped memories
+            if (groupedMemories && Object.keys(groupedMemories).length > 0) {
+                // Process each memory source group
+                for (const source in groupedMemories) {
+                    if (groupedMemories[source] && groupedMemories[source].length > 0) {
+                        // Add source header
+                        const sourceHeader = document.createElement('div');
+                        sourceHeader.className = 'memory-source-header';
+                        sourceHeader.textContent = source.charAt(0).toUpperCase() + source.slice(1);
+                        sourceHeader.style.fontWeight = 'bold';
+                        sourceHeader.style.padding = '5px';
+                        sourceHeader.style.backgroundColor = '#f0f0f0';
+                        sourceHeader.style.borderRadius = '3px';
+                        sourceHeader.style.margin = '5px 0';
+                        memoryList.appendChild(sourceHeader);
+                        
+                        // Add memories for this source
+                        groupedMemories[source].forEach(memory => {
+                            const memoryItem = document.createElement('div');
+                            memoryItem.className = 'memory-item';
+                            
+                            // Add source indicator
+                            memoryItem.dataset.source = source;
+                            
+                            // Truncate memory text for display
+                            const text = memory.text || 'No text';
+                            memoryItem.textContent = text.length > 50 ? text.substring(0, 50) + '...' : text;
+                            
+                            memoryList.appendChild(memoryItem);
+                        });
+                    }
+                }
+            } else if (memories && memories.length > 0) {
+                // Backward compatibility - use flat list of memories
+                memories.forEach(memory => {
+                    const memoryItem = document.createElement('div');
+                    memoryItem.className = 'memory-item';
+                    
+                    // Add source indicator if available
+                    const source = memory.metadata?.source || 'unknown';
+                    memoryItem.dataset.source = source;
+                    
+                    // Visual indicator of source
+                    if (source) {
+                        const sourceIndicator = document.createElement('span');
+                        sourceIndicator.style.display = 'inline-block';
+                        sourceIndicator.style.width = '10px';
+                        sourceIndicator.style.height = '10px';
+                        sourceIndicator.style.borderRadius = '50%';
+                        sourceIndicator.style.marginRight = '5px';
+                        
+                        // Different colors for different sources
+                        if (source === 'mem0ai') {
+                            sourceIndicator.style.backgroundColor = '#0066cc'; // Primary color
+                        } else if (source === 'fallback') {
+                            sourceIndicator.style.backgroundColor = '#ffc107'; // Warning color
+                        } else {
+                            sourceIndicator.style.backgroundColor = '#6c757d'; // Secondary color
+                        }
+                        
+                        memoryItem.prepend(sourceIndicator);
+                    }
+                    
+                    // Truncate memory text for display
+                    const text = memory.text || 'No text';
+                    memoryItem.appendChild(document.createTextNode(
+                        text.length > 50 ? text.substring(0, 50) + '...' : text
+                    ));
+                    
+                    memoryList.appendChild(memoryItem);
+                });
+            }
+        }
+
+        // Send a message to the server
+        async function sendMessage() {
+            const message = chatInput.value.trim();
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessage(message, true);
+            
+            // Clear input
+            chatInput.value = '';
+            chatInput.style.height = 'auto';
+            
+            // Add thinking indicator
+            addThinkingIndicator();
+            
+            // Disable send button
+            sendButton.disabled = true;
+            
+            // Prepare request payload
+            const payload = {
+                message: message,
+                system_prompt: systemPrompt.value,
+                model: modelSelect.value,
+                memory_id: memoryIdInput.value,
+                stream: true,
+                temperature: parseFloat(temperatureSlider.value),
+                top_p: parseFloat(topPSlider.value),
+                max_tokens: parseInt(maxTokensInput.value)
+            };
+            
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server responded with status: ${response.status}`);
+                }
+                
+                // It's a stream, so we need to process it incrementally
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                let responseText = '';
+                const assistantMessageDiv = document.createElement('div');
+                assistantMessageDiv.className = 'message message-assistant';
+                
+                const messageContent = document.createElement('div');
+                messageContent.className = 'message-content markdown';
+                
+                const messageTime = document.createElement('div');
+                messageTime.className = 'message-time';
+                messageTime.textContent = formatDate(new Date());
+                
+                assistantMessageDiv.appendChild(messageContent);
+                assistantMessageDiv.appendChild(messageTime);
+                
+                // Remove thinking indicator 
+                removeThinkingIndicator();
+                chatMessages.appendChild(assistantMessageDiv);
+                
+                let done = false;
+                while (!done) {
+                    const { value, done: readerDone } = await reader.read();
+                    done = readerDone;
+                    
+                    if (value) {
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                const data = line.substring(6);
+                                
+                                if (data === '[DONE]') {
+                                    done = true;
+                                    break;
+                                }
+                                
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.text) {
+                                        // Make sure there's proper spacing between chunks
+                                        // If the last character of responseText isn't a space and 
+                                        // the first character of parsed.text isn't a space or punctuation,
+                                        // add a space between them
+                                        if (responseText.length > 0 && 
+                                            responseText.charAt(responseText.length - 1) !== ' ' && 
+                                            parsed.text.charAt(0) !== ' ' &&
+                                            !/[.,!?;:]/.test(parsed.text.charAt(0))) {
+                                            responseText += ' ';
+                                        }
+                                        
+                                        responseText += parsed.text;
+                                        messageContent.innerHTML = renderMarkdown(responseText);
+                                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing JSON:', e);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Get active memories after response
+                updateActiveMemories();
+                
+            } catch (error) {
+                console.error('Error sending message:', error);
+                removeThinkingIndicator();
+                addMessage('Sorry, there was an error communicating with the server. Please try again.', false);
+            } finally {
+                // Re-enable send button
+                sendButton.disabled = false;
+            }
+        }
+
+        // Memory statistics elements
+        const activeMemoriesCountSpan = document.getElementById('active-memories-count');
+        const totalMemoriesCountSpan = document.getElementById('total-memories-count');
+        const mem0aiMemoriesCountSpan = document.getElementById('mem0ai-memories-count');
+        const fallbackMemoriesCountSpan = document.getElementById('fallback-memories-count');
+
+        // Get active memories
+        async function updateActiveMemories() {
+            try {
+                const response = await fetch(`/api/memories?memory_id=${memoryIdInput.value}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Update memory counts
+                    if (data.active && Array.isArray(data.active)) {
+                        activeMemoriesCountSpan.textContent = data.active.length;
+                    }
+                    
+                    totalMemoriesCountSpan.textContent = data.total || 0;
+                    
+                    // Update source-specific counts if grouped memories are available
+                    if (data.grouped_memories) {
+                        const mem0aiCount = data.grouped_memories.mem0ai ? data.grouped_memories.mem0ai.length : 0;
+                        const fallbackCount = data.grouped_memories.fallback ? data.grouped_memories.fallback.length : 0;
+                        
+                        mem0aiMemoriesCountSpan.textContent = mem0aiCount;
+                        fallbackMemoriesCountSpan.textContent = fallbackCount;
+                        
+                        // Update memory list display
+                        updateMemoryList(data.memories, data.grouped_memories);
+                    } else if (data.counts) {
+                        // If we have counts in the response
+                        mem0aiMemoriesCountSpan.textContent = data.counts.mem0ai || 0;
+                        fallbackMemoriesCountSpan.textContent = data.counts.fallback || 0;
+                        
+                        // Backward compatibility
+                        updateMemoryList(data.memories);
+                    } else {
+                        // Backward compatibility without counts
+                        updateMemoryList(data.memories);
+                        
+                        // Count sources manually
+                        let mem0aiCount = 0;
+                        let fallbackCount = 0;
+                        
+                        if (data.memories && Array.isArray(data.memories)) {
+                            data.memories.forEach(memory => {
+                                const source = memory.metadata?.source || 'unknown';
+                                if (source === 'mem0ai') mem0aiCount++;
+                                else if (source === 'fallback') fallbackCount++;
+                            });
+                        }
+                        
+                        mem0aiMemoriesCountSpan.textContent = mem0aiCount;
+                        fallbackMemoriesCountSpan.textContent = fallbackCount;
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching memories:', error);
+            }
+        }
+
+        // Memory system elements
+        const memorySystemRadios = document.querySelectorAll('input[name="memory-system"]');
+        const applyMemorySystemButton = document.getElementById('apply-memory-system');
+        const memoryCurrentModeSpan = document.getElementById('memory-current-mode');
+        const memoryMem0aiAvailableSpan = document.getElementById('memory-mem0ai-available');
+        const memorySystemStatusDiv = document.getElementById('memory-system-status');
+
+        // Get memory system info
+        async function getMemorySystemInfo() {
+            try {
+                const response = await fetch('/api/config/memory_system');
+                if (!response.ok) {
+                    throw new Error(`Server returned status ${response.status}`);
+                }
+                
+                const data = await response.json();
+                return data;
+            } catch (error) {
+                console.error('Error fetching memory system info:', error);
+                return null;
+            }
+        }
+
+        // Update memory system UI
+        async function updateMemorySystemUI() {
+            try {
+                const info = await getMemorySystemInfo();
+                if (!info) {
+                    memoryCurrentModeSpan.textContent = 'Error';
+                    memoryMem0aiAvailableSpan.textContent = 'Unknown';
+                    return;
+                }
+                
+                // Update radio buttons
+                const selectedMode = info.mode || 'auto';
+                memorySystemRadios.forEach(radio => {
+                    radio.checked = radio.value === selectedMode;
+                });
+                
+                // Update status indicators
+                memoryCurrentModeSpan.textContent = info.current_mode || 'Unknown';
+                memoryMem0aiAvailableSpan.textContent = info.mem0ai_available ? 'Yes' : 'No';
+                
+                // Set status background color
+                if (info.current_mode === 'mem0ai') {
+                    memorySystemStatusDiv.style.backgroundColor = '#d4edda'; // Success green
+                } else if (info.current_mode === 'fallback') {
+                    if (info.mode === 'fallback') {
+                        // Fallback was chosen intentionally
+                        memorySystemStatusDiv.style.backgroundColor = '#fff3cd'; // Warning yellow
+                    } else {
+                        // Fallback was forced due to unavailability
+                        memorySystemStatusDiv.style.backgroundColor = '#f8d7da'; // Danger red
+                    }
+                } else {
+                    memorySystemStatusDiv.style.backgroundColor = '#f0f0f0'; // Default gray
+                }
+                
+            } catch (error) {
+                console.error('Error updating memory system UI:', error);
+            }
+        }
+
+        // Apply memory system settings
+        async function applyMemorySystem() {
+            try {
+                // Get selected mode
+                let selectedMode = 'auto';
+                memorySystemRadios.forEach(radio => {
+                    if (radio.checked) {
+                        selectedMode = radio.value;
+                    }
+                });
+                
+                // Set memory system indicator to "Applying..."
+                memoryCurrentModeSpan.textContent = 'Applying...';
+                
+                // Apply settings
+                const response = await fetch('/api/config/memory_system', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ mode: selectedMode })
+                });
+                
+                let errorMessage = null;
+                
+                if (!response.ok) {
+                    try {
+                        const errorData = await response.json();
+                        errorMessage = errorData.error || `Server returned status ${response.status}`;
+                    } catch (parseError) {
+                        // If JSON parsing fails, use the response text or status
+                        try {
+                            const responseText = await response.text();
+                            errorMessage = responseText || `Server returned status ${response.status}`;
+                        } catch (textError) {
+                            errorMessage = `Server returned status ${response.status}`;
+                        }
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+                
+                // Parse response data with error handling
+                let responseData;
+                try {
+                    responseData = await response.json();
+                    console.log('Memory system response:', responseData);
+                } catch (parseError) {
+                    console.error('Error parsing response JSON:', parseError);
+                    throw new Error('The server response was not valid JSON');
+                }
+                
+                // Update UI
+                await updateMemorySystemUI();
+                
+                // Show success message
+                addMessage(`Memory system changed to ${selectedMode} mode.`, false);
+                
+            } catch (error) {
+                console.error('Error applying memory system settings:', error);
+                
+                // Show error message
+                addMessage(`Error changing memory system: ${error.message}`, false);
+                
+                // Update UI to show current state
+                try {
+                    await updateMemorySystemUI();
+                } catch (uiError) {
+                    console.error('Error updating memory system UI:', uiError);
+                    // If we can't even update the UI, set some sensible defaults
+                    memoryCurrentModeSpan.textContent = 'Error';
+                    memoryMem0aiAvailableSpan.textContent = 'Unknown';
+                    memorySystemStatusDiv.style.backgroundColor = '#f8d7da'; // Danger red
+                }
+            }
+        }
+
+        // Apply memory system button event
+        applyMemorySystemButton.addEventListener('click', applyMemorySystem);
+
+        // Initialize
+        (async function() {
+            const connected = await initializeModelList();
+            
+            if (connected) {
+                updateActiveMemories();
+                
+                // Initialize memory system UI
+                await updateMemorySystemUI();
+            } else {
+                addMessage('Warning: Could not connect to the Ollama server. Please make sure it\'s running at ' + 
+                          '<strong>http://localhost:11434</strong>', false);
+                modelStatus.textContent = "Connection failed";
+            }
+            
+            // Focus on input field
+            chatInput.focus();
+        })();
+    </script>
+</body>
+</html>
