@@ -1,5 +1,8 @@
 import os
 
+# Qdrant MCP Configuration
+QDRANT_MCP_ENABLED = os.environ.get('QDRANT_MCP_ENABLED', 'True').lower() == 'true'
+
 # Ollama Configuration
 OLLAMA_HOST = os.environ.get('OLLAMA_HOST', 'http://localhost:11434')
 # Force localhost if using 0.0.0.0 (common misconfiguration)

@@ -13,6 +13,8 @@ from flask_cors import CORS
 import logging_utils
 # Import health check utilities
 from health_check import get_system_health, check_ollama_health, check_mem0_health, check_qdrant_health
+# Import the Qdrant MCP conversation store
+from qdrant_conversation_store import conversation_store
 
 app = Flask(__name__)
 # More secure CORS configuration with specific allowed origins
@@ -35,12 +37,48 @@ else:
 ollama_client = OllamaClient(host=ollama_host)
 logger.info(f"API initialized with Ollama host: {ollama_host}")
 
-# Pattern to remove thinking tags - supports both <think> and <thinking> formats
-thinking_pattern = re.compile(r'<think(?:ing)?>.*?</think(?:ing)?>', re.DOTALL)
+# Pattern to extract thinking tags - supports both <think> and <thinking> formats
+thinking_pattern = re.compile(r'<think(?:ing)?>(.+?)</think(?:ing)?>', re.DOTALL)
 
 def remove_thinking_tags(text):
-    """Remove <think>...</think> or <thinking>...</thinking> tags from the response"""
-    return thinking_pattern.sub('', text).strip()
+    """
+    Remove <think>...</think> or <thinking>...</thinking> tags from the response.
+    Also returns the extracted thinking content if it exists.
+    
+    Returns:
+        Cleaned text with thinking tags removed
+    """
+    thinking_content = []
+    
+    # Extract all thinking tags content before removing
+    for match in thinking_pattern.finditer(text):
+        if match.group(1):
+            thinking_content.append(match.group(1).strip())
+    
+    # Remove thinking tags
+    cleaned_text = thinking_pattern.sub('', text).strip()
+    
+    # Return the cleaned text
+    return cleaned_text
+    
+def extract_thinking_content(text):
+    """
+    Extract thinking content from text with thinking tags.
+    
+    Args:
+        text: Original text that may contain thinking tags
+        
+    Returns:
+        List of extracted thinking content
+    """
+    thinking_content = []
+    
+    # Extract all thinking tags content
+    for match in thinking_pattern.finditer(text):
+        if match.group(1):
+            thinking_content.append(match.group(1).strip())
+            
+    return thinking_content
 
 @app.route('/')
 def index():
@@ -236,10 +274,51 @@ def get_active_memories():
             'count': 0
         })
 
+@app.route('/api/conversations/search', methods=['GET'])
+def search_conversations():
+    """Search for conversations stored in Qdrant MCP."""
+    try:
+        if not QDRANT_MCP_ENABLED:
+            return jsonify({
+                'error': 'Qdrant MCP conversation storage is not enabled'
+            }), 400
+            
+        query = request.args.get('query', '')
+        limit = int(request.args.get('limit', 5))
+        
+        if not query:
+            return jsonify({'error': 'No search query provided'}), 400
+            
+        # Use conversation store to search
+        success, results, error = conversation_store.find_conversations(
+            query=query,
+            limit=limit
+        )
+        
+        if success:
+            return jsonify({
+                'results': results or [],
+                'count': len(results) if results else 0,
+                'query': query
+            })
+        else:
+            return jsonify({
+                'error': error or 'Unknown error searching conversations',
+                'query': query
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Error searching conversations: {e}")
+        return create_error_response(
+            message="Error searching conversations", 
+            status_code=500, 
+            log_exception=e
+        )
+
 def store_memory(user_message, assistant_response, memory_id='default'):
     timestamp = datetime.now().isoformat()
     
-    # Store user message
+    # Store user message in existing memory system
     memory_manager.add_memory(
         f"User said: {user_message}",
         memory_id=memory_id,
@@ -249,7 +328,7 @@ def store_memory(user_message, assistant_response, memory_id='default'):
         }
     )
     
-    # Store assistant response
+    # Store assistant response in existing memory system
     memory_manager.add_memory(
         f"I responded: {assistant_response}",
         memory_id=memory_id,
@@ -258,6 +337,27 @@ def store_memory(user_message, assistant_response, memory_id='default'):
             'type': 'assistant_response'
         }
     )
+    
+    # Also store in Qdrant MCP if enabled
+    if QDRANT_MCP_ENABLED:
+        try:
+            # Use the conversation store to store in Qdrant MCP
+            success, error = conversation_store.store_conversation(
+                user_message=user_message,
+                assistant_response=assistant_response,
+                conversation_id=memory_id,
+                metadata={
+                    'timestamp': timestamp,
+                    'model': DEFAULT_MODEL
+                }
+            )
+            
+            if success:
+                logger.info(f"Successfully stored conversation in Qdrant MCP")
+            else:
+                logger.warning(f"Failed to store conversation in Qdrant MCP: {error}")
+        except Exception as e:
+            logger.error(f"Error storing conversation in Qdrant MCP: {e}")
     
     logger.info(f"Stored memory: User and Assistant conversation in {memory_id}")
 

@@ -488,8 +488,8 @@
                     placeholder="Type your message here..." 
                     rows="1" 
                     onkeydown="if(event.keyCode === 13 && !event.shiftKey) { event.preventDefault(); sendMessage(); }"></textarea>
-                <button id="send-button" class="send-button" onclick="sendMessage()">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <button id="send-button" class="send-button" onclick="sendMessage()" aria-label="Send message">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                     </svg>
                 </button>
@@ -724,87 +724,106 @@
         }
 
         // Update memory list
-        function updateMemoryList(memories, groupedMemories) {
-            if ((!memories || memories.length === 0) && (!groupedMemories || Object.keys(groupedMemories).length === 0)) {
-                memoryList.innerHTML = '<div class="memory-item">No memories yet</div>';
-                return;
-            }
-            
-            memoryList.innerHTML = '';
-            
-            // Check if we have grouped memories
-            if (groupedMemories && Object.keys(groupedMemories).length > 0) {
-                // Process each memory source group
-                for (const source in groupedMemories) {
-                    if (groupedMemories[source] && groupedMemories[source].length > 0) {
-                        // Add source header
-                        const sourceHeader = document.createElement('div');
-                        sourceHeader.className = 'memory-source-header';
-                        sourceHeader.textContent = source.charAt(0).toUpperCase() + source.slice(1);
-                        sourceHeader.style.fontWeight = 'bold';
-                        sourceHeader.style.padding = '5px';
-                        sourceHeader.style.backgroundColor = '#f0f0f0';
-                        sourceHeader.style.borderRadius = '3px';
-                        sourceHeader.style.margin = '5px 0';
-                        memoryList.appendChild(sourceHeader);
-                        
-                        // Add memories for this source
-                        groupedMemories[source].forEach(memory => {
-                            const memoryItem = document.createElement('div');
-                            memoryItem.className = 'memory-item';
-                            
-                            // Add source indicator
-                            memoryItem.dataset.source = source;
-                            
-                            // Truncate memory text for display
-                            const text = memory.text || 'No text';
-                            memoryItem.textContent = text.length > 50 ? text.substring(0, 50) + '...' : text;
-                            
-                            memoryList.appendChild(memoryItem);
-                        });
-                    }
-                }
-            } else if (memories && memories.length > 0) {
-                // Backward compatibility - use flat list of memories
-                memories.forEach(memory => {
-                    const memoryItem = document.createElement('div');
-                    memoryItem.className = 'memory-item';
-                    
-                    // Add source indicator if available
-                    const source = memory.metadata?.source || 'unknown';
-                    memoryItem.dataset.source = source;
-                    
-                    // Visual indicator of source
-                    if (source) {
-                        const sourceIndicator = document.createElement('span');
-                        sourceIndicator.style.display = 'inline-block';
-                        sourceIndicator.style.width = '10px';
-                        sourceIndicator.style.height = '10px';
-                        sourceIndicator.style.borderRadius = '50%';
-                        sourceIndicator.style.marginRight = '5px';
-                        
-                        // Different colors for different sources
-                        if (source === 'mem0ai') {
-                            sourceIndicator.style.backgroundColor = '#0066cc'; // Primary color
-                        } else if (source === 'fallback') {
-                            sourceIndicator.style.backgroundColor = '#ffc107'; // Warning color
-                        } else {
-                            sourceIndicator.style.backgroundColor = '#6c757d'; // Secondary color
-                        }
-                        
-                        memoryItem.prepend(sourceIndicator);
-                    }
-                    
-                    // Truncate memory text for display
-                    const text = memory.text || 'No text';
-                    memoryItem.appendChild(document.createTextNode(
-                        text.length > 50 ? text.substring(0, 50) + '...' : text
-                    ));
-                    
-                    memoryList.appendChild(memoryItem);
-                });
-            }
+    function updateMemoryList(memories, groupedMemories) {
+        if ((!memories || memories.length === 0) && (!groupedMemories || Object.keys(groupedMemories).length === 0)) {
+            memoryList.innerHTML = '<div class="memory-item">No memories yet</div>';
+            return;
         }
+        
+        memoryList.innerHTML = '';
+        
+        // Check if we have grouped memories
+        if (groupedMemories && Object.keys(groupedMemories).length > 0) {
+            // Process each memory source group
+            for (const source in groupedMemories) {
+                if (groupedMemories[source] && groupedMemories[source].length > 0) {
+                    // Add source header
+                    const sourceHeader = document.createElement('div');
+                    sourceHeader.className = 'memory-source-header';
+                    sourceHeader.textContent = source.charAt(0).toUpperCase() + source.slice(1);
+                    sourceHeader.style.fontWeight = 'bold';
+                    sourceHeader.style.padding = '5px';
+                    sourceHeader.style.backgroundColor = '#f0f0f0';
+                    sourceHeader.style.borderRadius = '3px';
+                    sourceHeader.style.margin = '5px 0';
+                    memoryList.appendChild(sourceHeader);
+                    
+                    // Add memories for this source
+                    groupedMemories[source].forEach(memory => {
+                        const memoryItem = document.createElement('div');
+                        memoryItem.className = 'memory-item';
+                        
+                        // Add source indicator
+                        memoryItem.dataset.source = source;
+                        
+                        // Format memory text for display with proper spacing
+                        const text = memory.text || 'No text';
+                        
+                        // Create a formatted text display with proper spacing
+                        const formattedText = formatMemoryText(text, 50);
+                        memoryItem.innerHTML = formattedText;
+                        
+                        memoryList.appendChild(memoryItem);
+                    });
+                }
+            }
+        } else if (memories && memories.length > 0) {
+            // Backward compatibility - use flat list of memories
+            memories.forEach(memory => {
+                const memoryItem = document.createElement('div');
+                memoryItem.className = 'memory-item';
+                
+                // Add source indicator if available
+                const source = memory.metadata?.source || 'unknown';
+                memoryItem.dataset.source = source;
+                
+                // Visual indicator of source
+                if (source) {
+                    const sourceIndicator = document.createElement('span');
+                    sourceIndicator.style.display = 'inline-block';
+                    sourceIndicator.style.width = '10px';
+                    sourceIndicator.style.height = '10px';
+                    sourceIndicator.style.borderRadius = '50%';
+                    sourceIndicator.style.marginRight = '5px';
+                    
+                    // Different colors for different sources
+                    if (source === 'mem0ai') {
+                        sourceIndicator.style.backgroundColor = '#0066cc'; // Primary color
+                    } else if (source === 'fallback') {
+                        sourceIndicator.style.backgroundColor = '#ffc107'; // Warning color
+                    } else {
+                        sourceIndicator.style.backgroundColor = '#6c757d'; // Secondary color
+                    }
+                    
+                    memoryItem.prepend(sourceIndicator);
+                }
+                
+                // Format memory text for display with proper spacing
+                const text = memory.text || 'No text';
+                const formattedText = formatMemoryText(text, 50);
+                
+                // Create a span for the text
+                const textSpan = document.createElement('span');
+                textSpan.innerHTML = formattedText;
+                memoryItem.appendChild(textSpan);
+                
+                memoryList.appendChild(memoryItem);
+            });
+        }
+    }
+    
+    // Helper function to format memory text with proper spacing
+    function formatMemoryText(text, maxLength) {
+        // Ensure spaces are preserved between words
+        const cleanText = text.replace(/\s+/g, ' ').trim();
+        
+        // Truncate if necessary
+        if (cleanText.length > maxLength) {
+            return cleanText.substring(0, maxLength) + '...';
+        }
+        
+        return cleanText;
+    }
 
         // Send a message to the server
         async function sendMessage() {
